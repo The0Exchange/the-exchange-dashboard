@@ -1,0 +1,30 @@
+body {
+    background-color: #121212;
+    color: white;
+    font-family: 'Orbitron', sans-serif;
+    text-align: center;
+    padding: 20px;
+}
+.ticker {
+    font-size: 20px;
+    margin-bottom: 20px;
+    white-space: nowrap;
+    overflow-x: auto;
+}
+.chart-title {
+    font-size: 28px;
+    margin-bottom: 10px;
+}
+.grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 20px;
+    gap: 10px;
+}
+.grid div {
+    font-size: 18px;
+    padding: 6px 12px;
+    background-color: #1e1e1e;
+    border-radius: 4px;
+}
