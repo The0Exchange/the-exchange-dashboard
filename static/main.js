@@ -15,10 +15,10 @@ async function fetchHistory(drink) {
 
 function updateTicker(prices) {
     const ticker = document.getElementById("ticker");
-    ticker.innerHTML = `<span>` +
+    ticker.innerHTML = `<span>` + 
         Object.entries(prices).map(([name, price]) =>
-            `${name}: $${price.toFixed(2)} `).join('') +
-        `</span>`;
+            `<span id="ticker-${name.replace(/\s+/g, '-')}">${name}: $${price.toFixed(2)} </span>`
+        ).join('') + `</span>`;
 }
 
 function updateGrid(prices) {
@@ -37,8 +37,12 @@ async function updateChart(drink) {
     if (chart) {
         chart.data.labels = labels;
         chart.data.datasets[0].data = data;
-        chart.options.scales.y.suggestedMin = Math.min(...data) - 0.25;
-        chart.options.scales.y.suggestedMax = Math.max(...data) + 0.25;
+        chart.options.scales.y = {
+            ticks: { color: "white" },
+            grid: { color: "#444" },
+            suggestedMin: Math.min(...data) - 0.25,
+            suggestedMax: Math.max(...data) + 0.25
+        };
         chart.update();
     } else {
         const ctx = document.getElementById("priceChart").getContext("2d");
@@ -81,23 +85,30 @@ async function updateDashboard() {
     // Animate price changes
     Object.entries(prices).forEach(([name, newPrice]) => {
         const oldPrice = previousPrices[name];
+        const safeId = name.replace(/\s+/g, '-');
+
         if (oldPrice !== undefined && oldPrice !== newPrice) {
-            const el = document.getElementById(`price-${name.replace(/\s+/g, '-')}`);
-            if (el) {
-                el.style.backgroundColor = newPrice > oldPrice ? "green" : "red";
-                setTimeout(() => {
-                    el.style.backgroundColor = "#1e1e1e";
-                }, 500);
+            // Flash grid cell
+            const gridEl = document.getElementById(`price-${safeId}`);
+            if (gridEl) {
+                gridEl.style.backgroundColor = newPrice > oldPrice ? "green" : "red";
+                setTimeout(() => gridEl.style.backgroundColor = "#1e1e1e", 500);
+            }
+
+            // Flash ticker text
+            const tickerEl = document.getElementById(`ticker-${safeId}`);
+            if (tickerEl) {
+                tickerEl.style.color = newPrice > oldPrice ? "lime" : "red";
+                setTimeout(() => tickerEl.style.color = "white", 500);
             }
         }
     });
+
     previousPrices = { ...prices };
 
-    // Chart
     await updateChart(drinks[currentIndex]);
     currentIndex = (currentIndex + 1) % drinks.length;
 }
 
-// Run
 setInterval(updateDashboard, 10000);
 updateDashboard();
