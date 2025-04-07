@@ -25,7 +25,7 @@ function updateTicker(prices) {
         ticker.innerHTML = `<div class="ticker-inner">${tickerContent + tickerContent}</div>`;
         tickerInitialized = true;
     } else {
-        // Just update the values inside existing spans
+        // Just update values in place
         Object.entries(prices).forEach(([name, price]) => {
             const tickerEl = document.getElementById(`ticker-${name.replace(/\s+/g, '-')}`);
             if (tickerEl) {
@@ -44,7 +44,10 @@ function updateGrid(prices) {
 async function updateChart(drink) {
     const history = await fetchHistory(drink);
     const labels = history.map(p => p.time);
-    const data = history.map(p => p.price);
+    const data = history.map(p => parseFloat(p.price));  // Ensure numeric
+
+    console.log("Chart Data for", drink, data);  // Debug logging
+
     const title = document.getElementById("chart-title");
     title.textContent = drink;
 
@@ -53,8 +56,15 @@ async function updateChart(drink) {
         chart = null;
     }
 
-    const dailyHigh = Math.max(...data);
-    const dailyLow = Math.min(...data);
+    let dailyHigh = Math.max(...data);
+    let dailyLow = Math.min(...data);
+
+    // Fallback if data is invalid or flat
+    if (!isFinite(dailyHigh) || !isFinite(dailyLow) || dailyHigh === dailyLow) {
+        const fallback = data[0] || 5.0;
+        dailyLow = fallback - 1;
+        dailyHigh = fallback + 1;
+    }
 
     const ctx = document.getElementById("priceChart").getContext("2d");
     chart = new Chart(ctx, {
@@ -75,8 +85,8 @@ async function updateChart(drink) {
                 y: {
                     ticks: { color: "white" },
                     grid: { color: "#444" },
-                    suggestedMin: dailyLow - 1,
-                    suggestedMax: dailyHigh + 1
+                    suggestedMin: dailyLow,
+                    suggestedMax: dailyHigh
                 }
             },
             plugins: {
@@ -93,20 +103,20 @@ async function updateDashboard() {
     updateTicker(prices);
     updateGrid(prices);
 
-    // Flash updates
+    // Animate updates
     Object.entries(prices).forEach(([name, newPrice]) => {
         const oldPrice = previousPrices[name];
         const safeId = name.replace(/\s+/g, '-');
 
         if (oldPrice !== undefined && oldPrice !== newPrice) {
-            // Grid flash
+            // Flash grid
             const gridEl = document.getElementById(`price-${safeId}`);
             if (gridEl) {
                 gridEl.style.backgroundColor = newPrice > oldPrice ? "green" : "red";
                 setTimeout(() => gridEl.style.backgroundColor = "#1e1e1e", 500);
             }
 
-            // Ticker flash
+            // Flash ticker
             const tickerEl = document.getElementById(`ticker-${safeId}`);
             if (tickerEl) {
                 tickerEl.style.color = newPrice > oldPrice ? "lime" : "red";
