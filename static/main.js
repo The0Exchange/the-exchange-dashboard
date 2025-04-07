@@ -15,10 +15,12 @@ async function fetchHistory(drink) {
 
 function updateTicker(prices) {
     const ticker = document.getElementById("ticker");
-    ticker.innerHTML = `<span>` + 
-        Object.entries(prices).map(([name, price]) =>
-            `<span id="ticker-${name.replace(/\s+/g, '-')}">${name}: $${price.toFixed(2)} </span>`
-        ).join('') + `</span>`;
+    const tickerContent = Object.entries(prices).map(([name, price]) =>
+        `<span id="ticker-${name.replace(/\s+/g, '-')}">${name}: $${price.toFixed(2)} </span>`
+    ).join('');
+
+    // Duplicate content for infinite scroll
+    ticker.innerHTML = `<div class="ticker-inner">${tickerContent + tickerContent}</div>`;
 }
 
 function updateGrid(prices) {
@@ -34,46 +36,40 @@ async function updateChart(drink) {
     const title = document.getElementById("chart-title");
     title.textContent = drink;
 
+    // Force destroy and redraw the chart to reset y-axis scaling
     if (chart) {
-        chart.data.labels = labels;
-        chart.data.datasets[0].data = data;
-        chart.options.scales.y = {
-            ticks: { color: "white" },
-            grid: { color: "#444" },
-            suggestedMin: Math.min(...data) - 0.25,
-            suggestedMax: Math.max(...data) + 0.25
-        };
-        chart.update();
-    } else {
-        const ctx = document.getElementById("priceChart").getContext("2d");
-        chart = new Chart(ctx, {
-            type: "line",
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: "Price",
-                    data: data,
-                    borderColor: "lime",
-                    backgroundColor: "transparent"
-                }]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    x: { display: false },
-                    y: {
-                        ticks: { color: "white" },
-                        grid: { color: "#444" },
-                        suggestedMin: Math.min(...data) - 0.25,
-                        suggestedMax: Math.max(...data) + 0.25
-                    }
-                },
-                plugins: {
-                    legend: { display: false }
-                }
-            }
-        });
+        chart.destroy();
+        chart = null;
     }
+
+    const ctx = document.getElementById("priceChart").getContext("2d");
+    chart = new Chart(ctx, {
+        type: "line",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "Price",
+                data: data,
+                borderColor: "lime",
+                backgroundColor: "transparent"
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                x: { display: false },
+                y: {
+                    ticks: { color: "white" },
+                    grid: { color: "#444" },
+                    suggestedMin: Math.min(...data) - 0.25,
+                    suggestedMax: Math.max(...data) + 0.25
+                }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
 }
 
 async function updateDashboard() {
@@ -82,7 +78,7 @@ async function updateDashboard() {
     updateTicker(prices);
     updateGrid(prices);
 
-    // Animate price changes
+    // Animate price changes in grid + ticker
     Object.entries(prices).forEach(([name, newPrice]) => {
         const oldPrice = previousPrices[name];
         const safeId = name.replace(/\s+/g, '-');
