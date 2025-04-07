@@ -1,6 +1,7 @@
 let chart;
 let currentIndex = 0;
 let drinks = [];
+let previousPrices = {};
 
 async function fetchPrices() {
     const res = await fetch("/prices");
@@ -14,14 +15,16 @@ async function fetchHistory(drink) {
 
 function updateTicker(prices) {
     const ticker = document.getElementById("ticker");
-    ticker.innerHTML = Object.entries(prices).map(([name, price]) =>
-        `<span style='margin:0 20px;'>${name}: $${price.toFixed(2)}</span>`).join('');
+    ticker.innerHTML = `<span>` +
+        Object.entries(prices).map(([name, price]) =>
+            `${name}: $${price.toFixed(2)} `).join('') +
+        `</span>`;
 }
 
 function updateGrid(prices) {
     const grid = document.getElementById("price-grid");
     grid.innerHTML = Object.entries(prices).map(([name, price]) =>
-        `<div>${name}: $${price.toFixed(2)}</div>`).join('');
+        `<div id="price-${name.replace(/\s+/g, '-')}">${name}: $${price.toFixed(2)}</div>`).join('');
 }
 
 async function updateChart(drink) {
@@ -34,6 +37,8 @@ async function updateChart(drink) {
     if (chart) {
         chart.data.labels = labels;
         chart.data.datasets[0].data = data;
+        chart.options.scales.y.suggestedMin = Math.min(...data) - 0.25;
+        chart.options.scales.y.suggestedMax = Math.max(...data) + 0.25;
         chart.update();
     } else {
         const ctx = document.getElementById("priceChart").getContext("2d");
@@ -52,7 +57,12 @@ async function updateChart(drink) {
                 responsive: true,
                 scales: {
                     x: { display: false },
-                    y: { ticks: { color: "white" }, grid: { color: "#444" } }
+                    y: {
+                        ticks: { color: "white" },
+                        grid: { color: "#444" },
+                        suggestedMin: Math.min(...data) - 0.25,
+                        suggestedMax: Math.max(...data) + 0.25
+                    }
                 },
                 plugins: {
                     legend: { display: false }
@@ -67,9 +77,27 @@ async function updateDashboard() {
     drinks = Object.keys(prices);
     updateTicker(prices);
     updateGrid(prices);
+
+    // Animate price changes
+    Object.entries(prices).forEach(([name, newPrice]) => {
+        const oldPrice = previousPrices[name];
+        if (oldPrice !== undefined && oldPrice !== newPrice) {
+            const el = document.getElementById(`price-${name.replace(/\s+/g, '-')}`);
+            if (el) {
+                el.style.backgroundColor = newPrice > oldPrice ? "green" : "red";
+                setTimeout(() => {
+                    el.style.backgroundColor = "#1e1e1e";
+                }, 500);
+            }
+        }
+    });
+    previousPrices = { ...prices };
+
+    // Chart
     await updateChart(drinks[currentIndex]);
     currentIndex = (currentIndex + 1) % drinks.length;
 }
 
+// Run
 setInterval(updateDashboard, 10000);
 updateDashboard();
