@@ -2,6 +2,7 @@ let chart;
 let currentIndex = 0;
 let drinks = [];
 let previousPrices = {};
+let tickerInitialized = false;
 
 async function fetchPrices() {
     const res = await fetch("/prices");
@@ -15,12 +16,23 @@ async function fetchHistory(drink) {
 
 function updateTicker(prices) {
     const ticker = document.getElementById("ticker");
-    const tickerContent = Object.entries(prices).map(([name, price]) =>
-        `<span id="ticker-${name.replace(/\s+/g, '-')}">${name}: $${price.toFixed(2)} </span>`
-    ).join('');
 
-    // Duplicate content for infinite scroll
-    ticker.innerHTML = `<div class="ticker-inner">${tickerContent + tickerContent}</div>`;
+    // Only create ticker once
+    if (!tickerInitialized) {
+        const tickerContent = Object.entries(prices).map(([name, price]) =>
+            `<span id="ticker-${name.replace(/\s+/g, '-')}">${name}: $${price.toFixed(2)} </span>`
+        ).join('');
+        ticker.innerHTML = `<div class="ticker-inner">${tickerContent + tickerContent}</div>`;
+        tickerInitialized = true;
+    } else {
+        // Just update the values inside existing spans
+        Object.entries(prices).forEach(([name, price]) => {
+            const tickerEl = document.getElementById(`ticker-${name.replace(/\s+/g, '-')}`);
+            if (tickerEl) {
+                tickerEl.textContent = `${name}: $${price.toFixed(2)} `;
+            }
+        });
+    }
 }
 
 function updateGrid(prices) {
@@ -36,11 +48,13 @@ async function updateChart(drink) {
     const title = document.getElementById("chart-title");
     title.textContent = drink;
 
-    // Force destroy and redraw the chart to reset y-axis scaling
     if (chart) {
         chart.destroy();
         chart = null;
     }
+
+    const dailyHigh = Math.max(...data);
+    const dailyLow = Math.min(...data);
 
     const ctx = document.getElementById("priceChart").getContext("2d");
     chart = new Chart(ctx, {
@@ -61,8 +75,8 @@ async function updateChart(drink) {
                 y: {
                     ticks: { color: "white" },
                     grid: { color: "#444" },
-                    suggestedMin: Math.min(...data) - 0.25,
-                    suggestedMax: Math.max(...data) + 0.25
+                    suggestedMin: dailyLow - 1,
+                    suggestedMax: dailyHigh + 1
                 }
             },
             plugins: {
@@ -75,23 +89,24 @@ async function updateChart(drink) {
 async function updateDashboard() {
     const prices = await fetchPrices();
     drinks = Object.keys(prices);
+
     updateTicker(prices);
     updateGrid(prices);
 
-    // Animate price changes in grid + ticker
+    // Flash updates
     Object.entries(prices).forEach(([name, newPrice]) => {
         const oldPrice = previousPrices[name];
         const safeId = name.replace(/\s+/g, '-');
 
         if (oldPrice !== undefined && oldPrice !== newPrice) {
-            // Flash grid cell
+            // Grid flash
             const gridEl = document.getElementById(`price-${safeId}`);
             if (gridEl) {
                 gridEl.style.backgroundColor = newPrice > oldPrice ? "green" : "red";
                 setTimeout(() => gridEl.style.backgroundColor = "#1e1e1e", 500);
             }
 
-            // Flash ticker text
+            // Ticker flash
             const tickerEl = document.getElementById(`ticker-${safeId}`);
             if (tickerEl) {
                 tickerEl.style.color = newPrice > oldPrice ? "lime" : "red";
