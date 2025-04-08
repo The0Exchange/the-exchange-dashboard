@@ -20,7 +20,8 @@ DRINKS = {
     "Guinness": "BUVRMGQPP347WIFSEVKLTYO6",
     "Heineken": "AXVZ5AHHXXJNW2MWHEHQKP2S"
 }
-DATA_DIR = "Data"
+
+DATA_DIR = "data"
 
 @app.route("/")
 def index():
@@ -43,8 +44,10 @@ def get_prices():
 
 @app.route("/history/<drink>")
 def get_history(drink):
-    file_path = os.path.join(DATA_DIR, f"{drink.lower().replace(' ', '_')}_history.csv")
+    filename = f"{drink.lower().replace(' ', '_')}_history.csv"
+    file_path = os.path.join(DATA_DIR, filename)
     history = []
+
     if os.path.exists(file_path):
         with open(file_path, newline='') as f:
             reader = csv.DictReader(f)
@@ -52,9 +55,13 @@ def get_history(drink):
                 try:
                     timestamp = datetime.fromisoformat(row["timestamp"]).astimezone(timezone("US/Eastern"))
                     price = float(row["price"])
-                    history.append({"time": timestamp.strftime("%H:%M"), "price": price})
+                    history.append({
+                        "time": timestamp.strftime("%H:%M"),
+                        "price": price
+                    })
                 except:
                     continue
+
     return jsonify(history)
 
 if __name__ == "__main__":
