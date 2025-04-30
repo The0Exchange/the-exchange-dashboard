@@ -1,13 +1,9 @@
 from flask import Flask, render_template, jsonify
 import requests
-import os
-import csv
-from datetime import datetime
-from pytz import timezone
 
 app = Flask(__name__)
 
-ACCESS_TOKEN = "EAAAl2jsnhSRCJrDUumNtCxHXYpTtF82iUx8t-p185KlTHoyaiYjH_GXw-CWGpcy"
+ACCESS_TOKEN = "EAAAl2jsnhSRCJrDUumNtCxHXYpTtF82iUx8t-p185KlTHoyaiYj_H_GXw-CWGpcy"
 DRINKS = {
     "Busch Light": "SPUC5B5SGD7SXTYW3VSNVVAV",
     "Coors Light": "NO3AZ4JDPGQJYR23GZVFSAUA",
@@ -20,8 +16,6 @@ DRINKS = {
     "Guinness": "BUVRMGQPP347WIFSEVKLTYO6",
     "Heineken": "AXVZ5AHHXXJNW2MWHEHQKP2S"
 }
-
-DATA_DIR = "data"
 
 @app.route("/")
 def index():
@@ -41,28 +35,6 @@ def get_prices():
                             amount = var["item_variation_data"]["price_money"]["amount"]
                             prices[name] = round(amount / 100.0, 2)
     return jsonify(prices)
-
-@app.route("/history/<drink>")
-def get_history(drink):
-    filename = f"{drink.lower().replace(' ', '_')}_history.csv"
-    file_path = os.path.join(DATA_DIR, filename)
-    history = []
-
-    if os.path.exists(file_path):
-        with open(file_path, newline='') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                try:
-                    timestamp = datetime.fromisoformat(row["timestamp"]).astimezone(timezone("US/Eastern"))
-                    price = float(row["price"])
-                    history.append({
-                        "time": timestamp.strftime("%H:%M"),
-                        "price": price
-                    })
-                except:
-                    continue
-
-    return jsonify(history)
 
 if __name__ == "__main__":
     app.run(debug=True)
