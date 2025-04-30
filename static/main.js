@@ -4,20 +4,45 @@ let drinks = [];
 let previousPrices = {};
 let tickerInitialized = false;
 
-async function fetchPrices() {
-    const res = await fetch("/prices");
-    return await res.json();
+const DRINKS = [
+    "Bud Light", "Budweiser", "Busch Light", "Coors Light", "Corona Light",
+    "Guinness", "Heineken", "Michelob Ultra", "Miller Light", "Modelo"
+];
+
+const MAX_HISTORY = 300;
+
+function getTimeLabel() {
+    const now = new Date();
+    return now.toLocaleTimeString("en-US", { hour: '2-digit', minute: '2-digit' });
 }
 
-async function fetchHistory(drink) {
-    const res = await fetch("/history/" + encodeURIComponent(drink));
+function getDateKey() {
+    const now = new Date();
+    return now.toLocaleDateString("en-US", { timeZone: "America/New_York" });
+}
+
+function checkAndClearHistoryIfNeeded() {
+    const now = new Date();
+    const hourET = now.toLocaleString("en-US", { timeZone: "America/New_York", hour: '2-digit', hour12: false });
+    const cleared = localStorage.getItem("history_cleared");
+
+    if (hourET === "16" && cleared !== getDateKey()) {
+        for (let drink of DRINKS) {
+            localStorage.removeItem(`history_${drink}`);
+        }
+        localStorage.setItem("history_cleared", getDateKey());
+        console.log("Price history reset for new day.");
+    }
+}
+
+async function fetchPrices() {
+    const res = await fetch("/prices");
     return await res.json();
 }
 
 function updateTicker(prices) {
     const ticker = document.getElementById("ticker");
 
-    // Only create ticker once
     if (!tickerInitialized) {
         const tickerContent = Object.entries(prices).map(([name, price]) =>
             `<span id="ticker-${name.replace(/\s+/g, '-')}">${name}: $${price.toFixed(2)} </span>`
@@ -25,7 +50,6 @@ function updateTicker(prices) {
         ticker.innerHTML = `<div class="ticker-inner">${tickerContent + tickerContent}</div>`;
         tickerInitialized = true;
     } else {
-        // Just update values in place
         Object.entries(prices).forEach(([name, price]) => {
             const tickerEl = document.getElementById(`ticker-${name.replace(/\s+/g, '-')}`);
             if (tickerEl) {
@@ -41,12 +65,20 @@ function updateGrid(prices) {
         `<div id="price-${name.replace(/\s+/g, '-')}">${name}: $${price.toFixed(2)}</div>`).join('');
 }
 
-async function updateChart(drink) {
-    const history = await fetchHistory(drink);
-    const labels = history.map(p => p.time);
-    const data = history.map(p => parseFloat(p.price));  // Ensure numeric
+function updateChart(drink) {
+    const localKey = `history_${drink}`;
+    let history = JSON.parse(localStorage.getItem(localKey) || "[]");
 
-    console.log("Chart Data for", drink, data);  // Debug logging
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString("en-US", { hour: '2-digit', minute: '2-digit' });
+    const currentPrice = previousPrices[drink];
+
+    history.push({ time: timeStr, price: currentPrice });
+    if (history.length > MAX_HISTORY) history.shift();
+    localStorage.setItem(localKey, JSON.stringify(history));
+
+    const labels = history.map(p => p.time);
+    const data = history.map(p => parseFloat(p.price));
 
     const title = document.getElementById("chart-title");
     title.textContent = drink;
@@ -58,8 +90,6 @@ async function updateChart(drink) {
 
     let dailyHigh = Math.max(...data);
     let dailyLow = Math.min(...data);
-
-    // Fallback if data is invalid or flat
     if (!isFinite(dailyHigh) || !isFinite(dailyLow) || dailyHigh === dailyLow) {
         const fallback = data[0] || 5.0;
         dailyLow = fallback - 1;
@@ -97,26 +127,24 @@ async function updateChart(drink) {
 }
 
 async function updateDashboard() {
+    checkAndClearHistoryIfNeeded();
     const prices = await fetchPrices();
     drinks = Object.keys(prices);
 
     updateTicker(prices);
     updateGrid(prices);
 
-    // Animate updates
     Object.entries(prices).forEach(([name, newPrice]) => {
         const oldPrice = previousPrices[name];
         const safeId = name.replace(/\s+/g, '-');
 
         if (oldPrice !== undefined && oldPrice !== newPrice) {
-            // Flash grid
             const gridEl = document.getElementById(`price-${safeId}`);
             if (gridEl) {
                 gridEl.style.backgroundColor = newPrice > oldPrice ? "green" : "red";
                 setTimeout(() => gridEl.style.backgroundColor = "#1e1e1e", 500);
             }
 
-            // Flash ticker
             const tickerEl = document.getElementById(`ticker-${safeId}`);
             if (tickerEl) {
                 tickerEl.style.color = newPrice > oldPrice ? "lime" : "red";
@@ -127,8 +155,10 @@ async function updateDashboard() {
 
     previousPrices = { ...prices };
 
-    await updateChart(drinks[currentIndex]);
-    currentIndex = (currentIndex + 1) % drinks.length;
+    if (drinks.length > 0) {
+        await updateChart(drinks[currentIndex]);
+        currentIndex = (currentIndex + 1) % drinks.length;
+    }
 }
 
 setInterval(updateDashboard, 10000);
