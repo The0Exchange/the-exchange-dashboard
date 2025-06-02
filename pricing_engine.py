@@ -6,17 +6,23 @@ import random
 import requests
 
 # === CONFIGURATION ===
-SQUARE_API_URL = "https://connect.squareupsandbox.com/v2"
-ACCESS_TOKEN = os.getenv("SQUARE_ACCESS_TOKEN")
+SQUARE_API_URL   = "https://connect.squareupsandbox.com/v2"
+ACCESS_TOKEN     = os.getenv("SQUARE_ACCESS_TOKEN")
+LOCATION_ID      = os.getenv("SQUARE_LOCATION_ID")  # New: your sandbox location ID
 
-# === EARLY TOKEN CHECK ===
-# Print the first few characters of the token, or exit if it's missing.
-print(f"[DEBUG] Raw token is: {ACCESS_TOKEN[:8]}…" if ACCESS_TOKEN else "[DEBUG] SQUARE_ACCESS_TOKEN is empty!")
-if not ACCESS_TOKEN:
+# === EARLY TOKEN & LOCATION CHECK ===
+if ACCESS_TOKEN:
+    print(f"[DEBUG] Raw token is: {ACCESS_TOKEN[:8]}…")
+else:
+    print("[DEBUG] SQUARE_ACCESS_TOKEN is empty!")
     print("⚠️ SQUARE_ACCESS_TOKEN is empty! Exiting.")
     sys.exit(1)
 
-# Add the Square-Version header so our requests use the 2025-05-21 API schema
+if not LOCATION_ID:
+    print("⚠️ SQUARE_LOCATION_ID is empty! (Set this in your Render environment.)")
+    sys.exit(1)
+
+# === HEADERS (with pinned API version) ===
 HEADERS = {
     "Authorization": f"Bearer {ACCESS_TOKEN}",
     "Square-Version": "2025-05-21",
@@ -36,13 +42,13 @@ DRINKS = {
     "modelo":           "ZTFUVEXIA5AF7TRKA322R3U3"
 }
 
-FLOOR_PRICE = 2.00
-CAP_PRICE = 10.00
-PRICE_DRIFT = 0.02
+FLOOR_PRICE    = 2.00
+CAP_PRICE      = 10.00
+PRICE_DRIFT    = 0.02
 PURCHASE_DRIFT = 0.01
 ROLLING_WINDOW = 20
 
-price_history = {drink: [] for drink in DRINKS}
+price_history = { drink: [] for drink in DRINKS }
 
 
 def get_square_price(variation_id, drink):
@@ -70,7 +76,7 @@ def update_square_price(drink, variation_id, new_price):
     """
     cents = int(round(new_price * 100))
 
-    # Step 1: Fetch the full catalog object
+    # Step 1: Fetch the full catalog object for upsert
     url_get = f"{SQUARE_API_URL}/catalog/object/{variation_id}"
     response = requests.get(url_get, headers=HEADERS)
     print(f"[{drink}] GET for upsert ({url_get}) → HTTP {response.status_code}")
@@ -104,15 +110,72 @@ def update_square_price(drink, variation_id, new_price):
         print(f"[{drink}] ❌ Failed to update price: HTTP {update_response.status_code}")
 
 
-def simulate_purchases():
+def simulate_real_square_purchase():
     """
-    Simulate a random purchase for one drink. 
-    Returns a dict mapping {drink_name: quantity_sold}.
+    1) Randomly choose a drink (variation_id) & quantity.
+    2) POST /v2/orders to create a Sandbox order for that variation_id.
+    3) POST /v2/payments to immediately pay it (so it appears as a Quick Sale).
+    4) Return a dict { drink_key: quantity } for the pricing logic to consume.
     """
-    drink = random.choice(list(DRINKS.keys()))
-    quantity = random.choices([1, 2, 3], weights=[0.7, 0.2, 0.1])[0]
-    print(f"[{drink}] Simulated {quantity} purchase(s)")
-    return {drink: quantity}
+    drink_key    = random.choice(list(DRINKS.keys()))
+    variation_id = DRINKS[drink_key]
+    quantity     = random.choices([1, 2, 3], weights=[0.7, 0.2, 0.1])[0]
+    print(f"[{drink_key}] Simulating {quantity} purchase(s)…")
+
+    # --- 1) CREATE THE ORDER ---
+    order_url = f"{SQUARE_API_URL}/orders"
+    order_body = {
+        "order": {
+            "location_id": LOCATION_ID,
+            "line_items": [
+                {
+                    "catalog_object_id": variation_id,
+                    "quantity": str(quantity)
+                    # Omitting "base_price_money" so Square uses the current catalog price
+                }
+            ]
+        },
+        "idempotency_key": str(uuid.uuid4())
+    }
+
+    order_resp = requests.post(order_url, headers=HEADERS, json=order_body)
+    print(f"  [Order] POST {order_url} → HTTP {order_resp.status_code}")
+    print(f"  [Order]   Body: {order_resp.text}")
+
+    if order_resp.status_code not in (200, 201):
+        print(f"  [{drink_key}] ❌ Unable to create Square order (HTTP {order_resp.status_code})")
+        return {}
+
+    order_data  = order_resp.json().get("order", {})
+    order_id    = order_data.get("id")
+    total_money = order_data.get("total_money", {}).get("amount", 0)
+    if not order_id or total_money is None:
+        print(f"  [{drink_key}] ❌ Square did not return a valid order_id or total_money.")
+        return {}
+
+    # --- 2) CREATE THE PAYMENT (Quick Sale) ---
+    payment_url = f"{SQUARE_API_URL}/payments"
+    payment_body = {
+        "source_id": "cnon:card-nonce-ok",   # Sandbox test nonce that always works
+        "idempotency_key": str(uuid.uuid4()),
+        "amount_money": {
+            "amount": total_money,  # in cents
+            "currency": "USD"
+        },
+        "order_id": order_id,
+        "location_id": LOCATION_ID
+    }
+
+    payment_resp = requests.post(payment_url, headers=HEADERS, json=payment_body)
+    print(f"  [Payment] POST {payment_url} → HTTP {payment_resp.status_code}")
+    print(f"  [Payment]   Body: {payment_resp.text}")
+
+    if payment_resp.status_code not in (200, 201):
+        print(f"  [{drink_key}] ❌ Unable to pay Square order (HTTP {payment_resp.status_code})")
+        return { drink_key: quantity }
+
+    print(f"[{drink_key}] ✔️ Order {order_id} paid for ${total_money/100:.2f}")
+    return { drink_key: quantity }
 
 
 def apply_pricing_logic(drink, current_price, purchases):
@@ -149,7 +212,8 @@ def run_engine():
 
     while True:
         try:
-            purchases = simulate_purchases()
+            # ← now create a *real* Square Order + Payment
+            purchases = simulate_real_square_purchase()
 
             for drink, variation_id in DRINKS.items():
                 try:
@@ -171,5 +235,3 @@ def run_engine():
 
 if __name__ == "__main__":
     run_engine()
-
-
