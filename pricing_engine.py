@@ -46,9 +46,12 @@ DRINKS = {
 
 FLOOR_PRICE    = 2.00
 CAP_PRICE      = 10.00
-PRICE_DRIFT    = 0.02
-PURCHASE_DRIFT = 0.01
+PRICE_DRIFT    = 0.02     # ±2% random drift
+TIME_DRIFT     = 0.005    # 0.5% negative drift if no purchase in last 5 min
 ROLLING_WINDOW = 20
+
+# Keep track of the last time each drink was actually purchased
+last_purchase_time = { drink: None for drink in DRINKS }
 
 price_history = { drink: [] for drink in DRINKS }
 
@@ -117,15 +120,25 @@ def update_square_price(drink, variation_id, new_price):
 
 def simulate_real_square_purchase():
     """
-    1) Randomly choose a drink (variation_id) & quantity.
-    2) POST /v2/orders to create a Sandbox order for that variation_id.
-    3) POST /v2/payments to immediately pay it (so it appears as a Quick Sale).
-    4) Return a dict { drink_key: quantity } for the pricing logic to consume.
+    1) Decide whether to simulate no purchase (50%) or a positive quantity (30%→1, 10%→2, 10%→3).
+    2) If quantity > 0, randomly choose a drink & create a Sandbox order + payment.
+    3) Update last_purchase_time for that drink when quantity > 0.
+    4) Return { drink_key: quantity } or {} if no purchase this cycle.
     """
+    # Decide quantity with weighted probabilities
+    quantity = random.choices([0, 1, 2, 3], weights=[0.5, 0.3, 0.1, 0.1])[0]
+    if quantity == 0:
+        print("[none] No purchase simulated this cycle")
+        return {}
+
+    # Otherwise, pick a random drink to credit
     drink_key    = random.choice(list(DRINKS.keys()))
     variation_id = DRINKS[drink_key]
-    quantity     = random.choices([1, 2, 3], weights=[0.7, 0.2, 0.1])[0]
     print(f"[{drink_key}] Simulating {quantity} purchase(s)…")
+
+    # Record the time of this purchase
+    now_utc = datetime.now(tz=pytz.utc)
+    last_purchase_time[drink_key] = now_utc
 
     # --- 1) CREATE THE ORDER ---
     order_url = f"{SQUARE_API_URL}/orders"
@@ -185,17 +198,40 @@ def simulate_real_square_purchase():
 
 def apply_pricing_logic(drink, current_price, purchases):
     """
-    Apply the random-walk + mean reversion + purchase drift logic to compute new_price.
+    Apply the random-walk + purchase & time-based drift + mean reversion to compute new_price.
+    
+    - Random drift: ±PRICE_DRIFT (2%)
+    - Purchase drift: 0.5%/1%/1.5% depending on quantity (1→0.5%, 2→1%, 3→1.5%)
+    - Time drift: –TIME_DRIFT (0.5%) if no purchase in last 5 minutes
+    - Mean reversion: adjust 10% toward the rolling mean (over last ROLLING_WINDOW)
+    - Enforce floor CAP_PRICE boundaries
     """
-    # ±2% random drift
+    now_utc = datetime.now(tz=pytz.utc)
+
+    # 1) Random walk drift (±2%)
     drift = 1 + random.uniform(-PRICE_DRIFT, PRICE_DRIFT)
-    # +1% additional drift if a purchase happened for this drink
-    if purchases.get(drink):
-        drift += PURCHASE_DRIFT
+
+    # 2) Purchase‐based drift
+    qty = purchases.get(drink, 0)
+    if qty == 1:
+        drift += 0.005   # +0.5%
+    elif qty == 2:
+        drift += 0.01    # +1%
+    elif qty >= 3:
+        drift += 0.015   # +1.5%
+
+    # 3) Time‐based negative drift if last purchase > 5 minutes ago
+    last_time = last_purchase_time.get(drink)
+    if last_time:
+        if (now_utc - last_time) > timedelta(minutes=5):
+            drift -= TIME_DRIFT  # –0.5%
+    else:
+        # If never purchased yet, consider it as "older than 5 minutes"
+        drift -= TIME_DRIFT
 
     new_price = current_price * drift
 
-    # Mean reversion: rolling mean over last ROLLING_WINDOW prices
+    # 4) Mean reversion: 
     history = price_history[drink]
     history.append(current_price)
     if len(history) > ROLLING_WINDOW:
@@ -207,7 +243,7 @@ def apply_pricing_logic(drink, current_price, purchases):
     else:
         new_price += (mean - new_price) * 0.1
 
-    # Enforce floor and cap, then round to the nearest cent
+    # 5) Enforce floor and cap, then round
     new_price = max(FLOOR_PRICE, min(CAP_PRICE, new_price))
     return round(new_price, 2)
 
@@ -221,16 +257,17 @@ def seconds_until_next_4pm_eastern():
     now_utc = datetime.now(tz=pytz.utc)
     now_eastern = now_utc.astimezone(EASTERN)
 
-    # Build a datetime for today at 16:00 ET
-    today_4pm = EASTERN.localize(datetime(now_eastern.year, now_eastern.month, now_eastern.day, 16, 0, 0))
+    today_4pm = EASTERN.localize(datetime(
+        now_eastern.year, now_eastern.month, now_eastern.day, 16, 0, 0
+    ))
     if now_eastern < today_4pm:
         next_start = today_4pm
     else:
-        # After 4 PM ET, schedule for tomorrow at 4 PM
         tomorrow = now_eastern.date() + timedelta(days=1)
-        next_start = EASTERN.localize(datetime(tomorrow.year, tomorrow.month, tomorrow.day, 16, 0, 0))
+        next_start = EASTERN.localize(datetime(
+            tomorrow.year, tomorrow.month, tomorrow.day, 16, 0, 0
+        ))
 
-    # Convert both to UTC, then subtract
     next_start_utc = next_start.astimezone(pytz.utc)
     delta = (next_start_utc - now_utc).total_seconds()
     return max(delta, 0)
@@ -240,14 +277,14 @@ def run_engine():
     print("Starting pricing engine (active 4 PM–12 AM Eastern)…")
 
     while True:
-        # 1) Check the current time in US/Eastern
+        # 1) Check current time in US/Eastern
         now_utc = datetime.now(tz=pytz.utc)
         now_eastern = now_utc.astimezone(EASTERN)
         hour = now_eastern.hour
 
-        # 2) If between 16:00 and 23:59 ET, do one cycle
+        # 2) If between 16:00 and 23:59 ET, run one cycle
         if 16 <= hour < 24:
-            # Simulate a real Square purchase & get {drink:quantity}
+            # Simulate a real Square purchase & get {drink: quantity} (or {} if none)
             purchases = simulate_real_square_purchase()
 
             # For each drink, fetch current price and update accordingly
@@ -261,11 +298,11 @@ def run_engine():
                 new_price = apply_pricing_logic(drink, current_price, purchases)
                 update_square_price(drink, variation_id, new_price)
 
-            # After the cycle, sleep 60 seconds before checking time again
+            # Sleep 60 seconds before repeating
             time.sleep(60)
 
         else:
-            # Outside 4 PM–12 AM ET, sleep until next 4 PM ET
+            # Outside active window: sleep until next 4 PM ET
             secs = seconds_until_next_4pm_eastern()
             hrs = int(secs // 3600)
             mins = int((secs % 3600) // 60)
@@ -277,3 +314,4 @@ def run_engine():
 
 if __name__ == "__main__":
     run_engine()
+
