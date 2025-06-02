@@ -4,11 +4,13 @@ import time
 import uuid
 import random
 import requests
+from datetime import datetime, timedelta
+import pytz
 
 # === CONFIGURATION ===
 SQUARE_API_URL   = "https://connect.squareupsandbox.com/v2"
 ACCESS_TOKEN     = os.getenv("SQUARE_ACCESS_TOKEN")
-LOCATION_ID      = os.getenv("SQUARE_LOCATION_ID")  # New: your sandbox location ID
+LOCATION_ID      = os.getenv("SQUARE_LOCATION_ID")  # Your sandbox location ID
 
 # === EARLY TOKEN & LOCATION CHECK ===
 if ACCESS_TOKEN:
@@ -49,6 +51,9 @@ PURCHASE_DRIFT = 0.01
 ROLLING_WINDOW = 20
 
 price_history = { drink: [] for drink in DRINKS }
+
+# We'll use US/Eastern for determining our 4 PM–12 AM window
+EASTERN = pytz.timezone("US/Eastern")
 
 
 def get_square_price(variation_id, drink):
@@ -131,7 +136,7 @@ def simulate_real_square_purchase():
                 {
                     "catalog_object_id": variation_id,
                     "quantity": str(quantity)
-                    # Omitting "base_price_money" so Square uses the current catalog price
+                    # Omitting "base_price_money" so Square uses current catalog price
                 }
             ]
         },
@@ -207,14 +212,45 @@ def apply_pricing_logic(drink, current_price, purchases):
     return round(new_price, 2)
 
 
+def seconds_until_next_4pm_eastern():
+    """
+    Calculate how many seconds remain until the next 4:00 PM US/Eastern.
+    If the current Eastern time is before 16:00, return delta until today at 16:00.
+    Otherwise, return delta until tomorrow at 16:00.
+    """
+    now_utc = datetime.now(tz=pytz.utc)
+    now_eastern = now_utc.astimezone(EASTERN)
+
+    # Build a datetime for today at 16:00 ET
+    today_4pm = EASTERN.localize(datetime(now_eastern.year, now_eastern.month, now_eastern.day, 16, 0, 0))
+    if now_eastern < today_4pm:
+        next_start = today_4pm
+    else:
+        # After 4 PM ET, schedule for tomorrow at 4 PM
+        tomorrow = now_eastern.date() + timedelta(days=1)
+        next_start = EASTERN.localize(datetime(tomorrow.year, tomorrow.month, tomorrow.day, 16, 0, 0))
+
+    # Convert both to UTC, then subtract
+    next_start_utc = next_start.astimezone(pytz.utc)
+    delta = (next_start_utc - now_utc).total_seconds()
+    return max(delta, 0)
+
+
 def run_engine():
-    print("Starting pricing engine with Square updates and purchase simulation...")
+    print("Starting pricing engine (active 4 PM–12 AM Eastern)…")
 
     while True:
-        try:
-            # ← now create a *real* Square Order + Payment
+        # 1) Check the current time in US/Eastern
+        now_utc = datetime.now(tz=pytz.utc)
+        now_eastern = now_utc.astimezone(EASTERN)
+        hour = now_eastern.hour
+
+        # 2) If between 16:00 and 23:59 ET, do one cycle
+        if 16 <= hour < 24:
+            # Simulate a real Square purchase & get {drink:quantity}
             purchases = simulate_real_square_purchase()
 
+            # For each drink, fetch current price and update accordingly
             for drink, variation_id in DRINKS.items():
                 try:
                     current_price = get_square_price(variation_id, drink)
@@ -225,12 +261,18 @@ def run_engine():
                 new_price = apply_pricing_logic(drink, current_price, purchases)
                 update_square_price(drink, variation_id, new_price)
 
-            # Wait 60 seconds before the next cycle
+            # After the cycle, sleep 60 seconds before checking time again
             time.sleep(60)
 
-        except Exception as e:
-            print(f"Engine error: {e}")
-            time.sleep(10)
+        else:
+            # Outside 4 PM–12 AM ET, sleep until next 4 PM ET
+            secs = seconds_until_next_4pm_eastern()
+            hrs = int(secs // 3600)
+            mins = int((secs % 3600) // 60)
+            secs_rem = int(secs % 60)
+            print(f"[{now_eastern.strftime('%Y-%m-%d %H:%M:%S')} ET] Outside active hours. "
+                  f"Sleeping {hrs}h{mins}m{secs_rem}s until next 4 PM ET.")
+            time.sleep(secs)
 
 
 if __name__ == "__main__":
