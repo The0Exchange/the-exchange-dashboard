@@ -4,10 +4,13 @@ from datetime import datetime
 import pytz
 import requests
 import uuid
-import os  # ✅ NEW
+import os
 
 # ---------- CONFIGURATION ----------
-SQUARE_ACCESS_TOKEN = os.getenv("SQUARE_ACCESS_TOKEN")  # ✅ CHANGED
+SQUARE_ACCESS_TOKEN = os.getenv("SQUARE_ACCESS_TOKEN")
+if not SQUARE_ACCESS_TOKEN:
+    raise EnvironmentError("Missing SQUARE_ACCESS_TOKEN. Make sure it's set in your Render environment.")
+
 SQUARE_API_URL = "https://connect.squareupsandbox.com/v2"
 SQUARE_LOCATION_ID = "LTRVY3BZBFJE8"
 
@@ -95,4 +98,5 @@ while True:
         simulate_purchase()
 
     time.sleep(60)
+
 
