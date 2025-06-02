@@ -1,23 +1,12 @@
-import time
-import random
-from datetime import datetime
-import pytz
-import requests
-import uuid
 import os
+import time
+import uuid
+import random
+import requests
 
-# ---------- CONFIGURATION ----------
-SQUARE_ACCESS_TOKEN = os.getenv("SQUARE_ACCESS_TOKEN")
-if not SQUARE_ACCESS_TOKEN:
-    raise EnvironmentError("Missing SQUARE_ACCESS_TOKEN. Make sure it's set in your Render environment.")
-
+# === CONFIGURATION ===
 SQUARE_API_URL = "https://connect.squareupsandbox.com/v2"
-SQUARE_LOCATION_ID = "LTRVY3BZBFJE8"
-
-HEADERS = {
-    "Authorization": f"Bearer {SQUARE_ACCESS_TOKEN}",
-    "Content-Type": "application/json"
-}
+ACCESS_TOKEN = os.getenv("SQUARE_ACCESS_TOKEN")
 
 DRINKS = {
     "bud_light": "3DQO6KCAEQPMPTZIHJ3HA3KP",
@@ -32,71 +21,114 @@ DRINKS = {
     "modelo": "ZTFUVEXIA5AF7TRKA322R3U3"
 }
 
-# ---------- HELPERS ----------
-def get_current_price(variation_id):
-    response = requests.get(f"{SQUARE_API_URL}/catalog/object/{variation_id}", headers=HEADERS)
+HEADERS = {
+    "Authorization": f"Bearer {ACCESS_TOKEN}",
+    "Content-Type": "application/json"
+}
+
+FLOOR_PRICE = 2.00
+CAP_PRICE = 10.00
+PRICE_DRIFT = 0.02
+PURCHASE_DRIFT = 0.01
+ROLLING_WINDOW = 20
+
+price_history = {drink: [] for drink in DRINKS}
+
+
+def get_square_price(variation_id):
+    url = f"{SQUARE_API_URL}/catalog/object/{variation_id}"
+    response = requests.get(url, headers=HEADERS)
     if response.status_code == 200:
-        return response.json()["object"]["item_variation_data"]["price_money"]["amount"] / 100.0
+        data = response.json()
+        cents = data["object"]["item_variation_data"]["price_money"]["amount"]
+        return cents / 100.0
     else:
-        print(f"Failed to get price for {variation_id}: {response.text}")
-        return None
+        raise RuntimeError(f"Failed to fetch price: {response.text}")
+
 
 def update_square_price(drink, variation_id, new_price):
     cents = int(round(new_price * 100))
+    
+    # Step 1: Fetch full object
     response = requests.get(f"{SQUARE_API_URL}/catalog/object/{variation_id}", headers=HEADERS)
     if response.status_code != 200:
         print(f"[{drink}] Failed to fetch Square object: {response.text}")
         return
 
-    obj = response.json()["object"]
-    obj["item_variation_data"]["price_money"]["amount"] = cents
+    catalog_object = response.json()["object"]
+    catalog_object["item_variation_data"]["price_money"]["amount"] = cents
 
-    update_response = requests.put(f"{SQUARE_API_URL}/catalog/object/{variation_id}", headers=HEADERS, json={"object": obj})
-    if update_response.status_code == 200:
-        print(f"[{drink}] Price updated to ${new_price:.2f}")
-    else:
-        print(f"[{drink}] Failed to update price: {update_response.text}")
-
-def simulate_purchase():
-    drink, variation_id = random.choice(list(DRINKS.items()))
-    quantity = random.randint(1, 3)
-
+    # Step 2: Batch upsert
     body = {
         "idempotency_key": str(uuid.uuid4()),
-        "order": {
-            "location_id": SQUARE_LOCATION_ID,
-            "line_items": [
-                {
-                    "catalog_object_id": variation_id,
-                    "quantity": str(quantity)
-                }
-            ]
-        }
+        "batches": [
+            {
+                "objects": [catalog_object]
+            }
+        ]
     }
 
-    response = requests.post(f"{SQUARE_API_URL}/orders", headers=HEADERS, json=body)
-    if response.status_code == 200:
-        print(f"[{drink}] Simulated {quantity} purchase(s)")
+    update_response = requests.post(f"{SQUARE_API_URL}/catalog/batch-upsert", headers=HEADERS, json=body)
+    if update_response.status_code == 200:
+        print(f"[{drink}] ✅ Price updated to ${new_price:.2f}")
     else:
-        print(f"[{drink}] Failed to simulate purchase: {response.text}")
+        print(f"[{drink}] ❌ Failed to update price: {update_response.text}")
 
-# ---------- MAIN LOOP ----------
-print("Starting pricing engine with Square updates and purchase simulation...")
 
-while True:
-    now = datetime.now(pytz.timezone("US/Eastern"))
-    if 16 <= now.hour <= 23:
-        for drink, variation_id in DRINKS.items():
-            current_price = get_current_price(variation_id)
-            if current_price is None:
-                continue
+def simulate_purchases():
+    drink = random.choice(list(DRINKS.keys()))
+    quantity = random.choices([1, 2, 3], weights=[0.7, 0.2, 0.1])[0]
+    print(f"[{drink}] Simulated {quantity} purchase(s)")
+    return {drink: quantity}
 
-            new_price = current_price * random.uniform(0.98, 1.02)
-            new_price = round(min(max(new_price, 3.00), 10.00), 2)
-            update_square_price(drink, variation_id, new_price)
 
-        simulate_purchase()
+def apply_pricing_logic(drink, current_price, purchases):
+    drift = 1 + random.uniform(-PRICE_DRIFT, PRICE_DRIFT)
+    if purchases.get(drink):
+        drift += PURCHASE_DRIFT
 
-    time.sleep(60)
+    new_price = current_price * drift
+
+    history = price_history[drink]
+    history.append(current_price)
+    if len(history) > ROLLING_WINDOW:
+        history.pop(0)
+    mean = sum(history) / len(history)
+
+    if new_price > mean:
+        new_price -= (new_price - mean) * 0.1
+    else:
+        new_price += (mean - new_price) * 0.1
+
+    new_price = max(FLOOR_PRICE, min(CAP_PRICE, new_price))
+    return round(new_price, 2)
+
+
+def run_engine():
+    print("Starting pricing engine with Square updates and purchase simulation...")
+
+    while True:
+        try:
+            purchases = simulate_purchases()
+
+            for drink, variation_id in DRINKS.items():
+                try:
+                    current_price = get_square_price(variation_id)
+                except Exception as e:
+                    print(f"[{drink}] Error retrieving price: {e}")
+                    continue
+
+                new_price = apply_pricing_logic(drink, current_price, purchases)
+                update_square_price(drink, variation_id, new_price)
+
+            time.sleep(60)
+
+        except Exception as e:
+            print(f"Engine error: {e}")
+            time.sleep(10)
+
+
+if __name__ == "__main__":
+    run_engine()
 
 
