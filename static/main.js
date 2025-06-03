@@ -1,165 +1,163 @@
-let chart;
-let currentIndex = 0;
-let drinks = [];
-let previousPrices = {};
-let tickerInitialized = false;
+// ─── CONFIG/STATE ─────────────────────────────────────────────────────────────
+const MAX_HISTORY = 300;           // max points stored in localStorage per drink
+let currentIndex = 0;              // which drink to show in chart this cycle
+let drinks = [];                   // list of drink names (keys)
+let previousPrices = {};           // { "Bud Light": 4.12, … } from last fetch
 
-const DRINKS = [
-    "Bud Light", "Budweiser", "Busch Light", "Coors Light", "Corona Light",
-    "Guinness", "Heineken", "Michelob Ultra", "Miller Light", "Modelo"
-];
-
-const MAX_HISTORY = 300;
-
+// Utility to get "HH:MM" in Eastern Time (for labeling)
 function getTimeLabel() {
-    const now = new Date();
-    return now.toLocaleTimeString("en-US", { hour: '2-digit', minute: '2-digit' });
+  const now = new Date();
+  return now.toLocaleTimeString("en-US", { hour: '2-digit', minute: '2-digit' });
 }
 
-function getDateKey() {
-    const now = new Date();
-    return now.toLocaleDateString("en-US", { timeZone: "America/New_York" });
-}
-
-function checkAndClearHistoryIfNeeded() {
-    const now = new Date();
-    const hourET = now.toLocaleString("en-US", { timeZone: "America/New_York", hour: '2-digit', hour12: false });
-    const cleared = localStorage.getItem("history_cleared");
-
-    if (hourET === "16" && cleared !== getDateKey()) {
-        for (let drink of DRINKS) {
-            localStorage.removeItem(`history_${drink}`);
-        }
-        localStorage.setItem("history_cleared", getDateKey());
-        console.log("Price history reset for new day.");
-    }
-}
-
+// Fetch live prices from our Flask /prices endpoint
 async function fetchPrices() {
+  try {
     const res = await fetch("/prices");
+    if (!res.ok) throw new Error("Network error");
     return await res.json();
+  } catch (err) {
+    console.error("Failed to fetch /prices:", err);
+    return {}; // return empty to avoid crashes
+  }
 }
 
+// ─── TICKER ────────────────────────────────────────────────────────────────────
+// Rebuilds the <ul id="ticker"> every update. We duplicate the list to allow CSS
+// keyframes to scroll it continuously.
 function updateTicker(prices) {
-    const ticker = document.getElementById("ticker");
+  const ticker = document.getElementById("ticker");
+  if (!ticker) return;
 
-    if (!tickerInitialized) {
-        const tickerContent = Object.entries(prices).map(([name, price]) =>
-            `<span id="ticker-${name.replace(/\s+/g, '-')}">${name}: $${price.toFixed(2)} </span>`
-        ).join('');
-        ticker.innerHTML = `<div class="ticker-inner">${tickerContent + tickerContent}</div>`;
-        tickerInitialized = true;
-    } else {
-        Object.entries(prices).forEach(([name, price]) => {
-            const tickerEl = document.getElementById(`ticker-${name.replace(/\s+/g, '-')}`);
-            if (tickerEl) {
-                tickerEl.textContent = `${name}: $${price.toFixed(2)} `;
-            }
-        });
+  // Build one iteration of <li> items
+  const baseItems = Object.entries(prices).map(([name, price]) => {
+    // Determine arrow direction/color based on previousPrices
+    let direction = "flat";
+    if (previousPrices[name] !== undefined) {
+      if (price > previousPrices[name]) direction = "up";
+      else if (price < previousPrices[name]) direction = "down";
     }
+    let arrow = direction === "up" ? "▲" : direction === "down" ? "▼" : "–";
+    let arrowClass = direction === "up" ? "up" : direction === "down" ? "down" : "flat";
+
+    return `
+      <li class="ticker-item">
+        <span class="drink-name">${name}</span>
+        <span class="drink-price">${price.toFixed(2)}</span>
+        <span class="arrow ${arrowClass}">${arrow}</span>
+      </li>`;
+  }).join("");
+
+  // Duplicate so the CSS animation can scroll seamlessly
+  ticker.innerHTML = baseItems + baseItems;
 }
 
+// ─── PRICE GRID ────────────────────────────────────────────────────────────────
+// Rebuilds the bottom grid each update. Highlights background green/red if price changed.
 function updateGrid(prices) {
-    const grid = document.getElementById("price-grid");
-    grid.innerHTML = Object.entries(prices).map(([name, price]) =>
-        `<div id="price-${name.replace(/\s+/g, '-')}">${name}: $${price.toFixed(2)}</div>`).join('');
+  const grid = document.getElementById("price-grid");
+  if (!grid) return;
+
+  const content = Object.entries(prices).map(([name, price]) => {
+    let bgColor = "#1e1e1e"; // default dark background
+    if (previousPrices[name] !== undefined && price !== previousPrices[name]) {
+      bgColor = price > previousPrices[name] ? "green" : "red";
+    }
+    return `
+      <div class="grid-item" style="background-color: ${bgColor}">
+        <span class="grid-name">${name}</span>
+        <span class="grid-price">${price.toFixed(2)}</span>
+      </div>`;
+  }).join("");
+
+  grid.innerHTML = content;
 }
 
-function updateChart(drink) {
-    const localKey = `history_${drink}`;
-    let history = JSON.parse(localStorage.getItem(localKey) || "[]");
+// ─── CHART ─────────────────────────────────────────────────────────────────────
+// Updates Plotly chart for one drink. Maintains history in localStorage.
+function updateChart(drink, currentPrice) {
+  const timeLabel = getTimeLabel();
+  const key = `history_${drink}`;
+  let history = JSON.parse(localStorage.getItem(key) || "[]");
 
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString("en-US", { hour: '2-digit', minute: '2-digit' });
-    const currentPrice = previousPrices[drink];
+  // Append new point
+  history.push({ time: timeLabel, price: currentPrice });
+  if (history.length > MAX_HISTORY) history.shift();
+  localStorage.setItem(key, JSON.stringify(history));
 
-    history.push({ time: timeStr, price: currentPrice });
-    if (history.length > MAX_HISTORY) history.shift();
-    localStorage.setItem(localKey, JSON.stringify(history));
+  // Extract arrays for Plotly
+  const times = history.map((pt) => pt.time);
+  const vals  = history.map((pt) => pt.price);
 
-    const labels = history.map(p => p.time);
-    const data = history.map(p => parseFloat(p.price));
+  // Update chart title above the plot
+  const titleEl = document.getElementById("chart-title");
+  if (titleEl) titleEl.textContent = drink;
 
-    const title = document.getElementById("chart-title");
-    title.textContent = drink;
+  // Build a single trace
+  const trace = {
+    x: times,
+    y: vals,
+    mode: "lines+markers",
+    name: drink,
+    line:   { color: "lime", width: 2 },
+    marker: { size: 6, color: "lime" }
+  };
 
-    if (chart) {
-        chart.destroy();
-        chart = null;
-    }
+  // Layout: hide x-axis labels, auto‐range y‐axis, dark background
+  const layout = {
+    title: {
+      text: drink,
+      font: { size: 24, family: "Orbitron, sans-serif", color: "#ffffff" }
+    },
+    xaxis: { visible: false },
+    yaxis: {
+      autorange: true,
+      title: { text: "Price (USD)", font: { color: "#ffffff" } },
+      tickfont: { color: "#ffffff" },
+      gridcolor: "#444"
+    },
+    margin: { l: 40, r: 20, t: 50, b: 20 },
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor:  "rgba(0,0,0,0)"
+  };
 
-    let dailyHigh = Math.max(...data);
-    let dailyLow = Math.min(...data);
-    if (!isFinite(dailyHigh) || !isFinite(dailyLow) || dailyHigh === dailyLow) {
-        const fallback = data[0] || 5.0;
-        dailyLow = fallback - 1;
-        dailyHigh = fallback + 1;
-    }
-
-    const ctx = document.getElementById("priceChart").getContext("2d");
-    chart = new Chart(ctx, {
-        type: "line",
-        data: {
-            labels: labels,
-            datasets: [{
-                label: "Price",
-                data: data,
-                borderColor: "lime",
-                backgroundColor: "transparent"
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                x: { display: false },
-                y: {
-                    ticks: { color: "white" },
-                    grid: { color: "#444" },
-                    suggestedMin: dailyLow,
-                    suggestedMax: dailyHigh
-                }
-            },
-            plugins: {
-                legend: { display: false }
-            }
-        }
-    });
+  // If the chart hasn’t been created yet (or we switch to a new drink), call newPlot
+  // Otherwise, we can use Plotly.react() to efficiently update the existing plot
+  const chartDiv = document.getElementById("chart");
+  if (!chartDiv.data || chartDiv.data[0].name !== drink) {
+    Plotly.newPlot("chart", [trace], layout, { displayModeBar: false });
+  } else {
+    Plotly.react("chart", [trace], layout, { displayModeBar: false });
+  }
 }
 
+// ─── MAIN UPDATE LOOP ──────────────────────────────────────────────────────────
+// Fetches prices → updates ticker/grid → rotates chart every 10 seconds.
 async function updateDashboard() {
-    checkAndClearHistoryIfNeeded();
-    const prices = await fetchPrices();
-    drinks = Object.keys(prices);
+  const prices = await fetchPrices();
+  drinks = Object.keys(prices);
 
-    updateTicker(prices);
-    updateGrid(prices);
+  // 1) Ticker + Grid
+  updateTicker(prices);
+  updateGrid(prices);
 
-    Object.entries(prices).forEach(([name, newPrice]) => {
-        const oldPrice = previousPrices[name];
-        const safeId = name.replace(/\s+/g, '-');
+  // 2) Chart rotation
+  if (drinks.length > 0) {
+    const drink = drinks[currentIndex];
+    const livePrice = prices[drink];
 
-        if (oldPrice !== undefined && oldPrice !== newPrice) {
-            const gridEl = document.getElementById(`price-${safeId}`);
-            if (gridEl) {
-                gridEl.style.backgroundColor = newPrice > oldPrice ? "green" : "red";
-                setTimeout(() => gridEl.style.backgroundColor = "#1e1e1e", 500);
-            }
+    // Populate chart for this drink
+    updateChart(drink, livePrice);
 
-            const tickerEl = document.getElementById(`ticker-${safeId}`);
-            if (tickerEl) {
-                tickerEl.style.color = newPrice > oldPrice ? "lime" : "red";
-                setTimeout(() => tickerEl.style.color = "white", 500);
-            }
-        }
-    });
+    // Move to next drink (wrap around)
+    currentIndex = (currentIndex + 1) % drinks.length;
+  }
 
-    previousPrices = { ...prices };
-
-    if (drinks.length > 0) {
-        await updateChart(drinks[currentIndex]);
-        currentIndex = (currentIndex + 1) % drinks.length;
-    }
+  // 3) Save for next tick (so up/down detection works next time)
+  previousPrices = { ...prices };
 }
 
-setInterval(updateDashboard, 10000);
+// Run once immediately, then every 10 seconds
 updateDashboard();
+setInterval(updateDashboard, 10_000);
+
