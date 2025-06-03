@@ -1,21 +1,66 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>The Exchange Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron&display=swap" rel="stylesheet">
+  <meta charset="UTF-8" />
+  <title>The Exchange Dashboard</title>
+
+  <!-- Load your static CSS via Flask’s url_for -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+
+  <!-- If you want Orbitron font, you can keep this: -->
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron&display=swap" rel="stylesheet" />
+
+  <!-- Plotly (we’ll use Plotly instead of Chart.js here) -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 </head>
 <body>
-    <div id="ticker" class="ticker"></div>
+  <!-- ─── TICKER TAPE ─────────────────────────────────────────────────── -->
+  <div id="ticker-container">
+    <ul id="ticker">
+      {% for item in ticker_items %}
+        <li class="ticker-item">
+          <span class="drink-name">{{ item.name }}</span>
+          <span class="drink-price">{{ item.price }}</span>
+          {% if item.direction == "up" %}
+            <span class="arrow up">▲</span>
+          {% elif item.direction == "down" %}
+            <span class="arrow down">▼</span>
+          {% else %}
+            <span class="arrow flat">–</span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
 
-    <div id="chart-title" class="chart-title">Loading...</div>
+  <!-- ─── DYNAMIC CHART TITLE ─────────────────────────────────────────────── -->
+  <div id="chart-title" class="chart-title">
+    {{ ticker_items[0].name if ticker_items else "Loading…" }}
+  </div>
 
-    <!-- Reduced height from 400 to 350 -->
-    <canvas id="priceChart" width="800" height="350"></canvas>
+  <!-- ─── PLOTLY CHART ────────────────────────────────────────────────────── -->
+  <div id="chart" style="width:100%; height:60vh;"></div>
 
-    <div id="price-grid" class="grid"></div>
+  <!-- ─── PRICE GRID ───────────────────────────────────────────────────────── -->
+  <div id="price-grid" class="grid">
+    {% for drink, price in price_grid.items() %}
+      <div class="grid-item">
+        <span class="grid-name">{{ drink }}</span>
+        <span class="grid-price">
+          {{ "%.2f"|format(price) if price is not none else "N/A" }}
+        </span>
+      </div>
+    {% endfor %}
+  </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="/static/main.js"></script>
+  <script>
+    // ─── PLOTLY RENDER ────────────────────────────────────────────────────
+    const plotData = {{ plot_json | safe }};
+    Plotly.newPlot("chart", plotData.data, plotData.layout, { displayModeBar: false });
+
+    // ─── TICKER ANIMATION ─────────────────────────────────────────────────
+    // We load /static/ticker.js below to handle cloning/etc.
+  </script>
+  <script src="{{ url_for('static', filename='ticker.js') }}"></script>
 </body>
 </html>
