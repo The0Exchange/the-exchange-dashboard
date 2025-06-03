@@ -1,55 +1,116 @@
+/* ─── GLOBAL RESET & BODY ──────────────────────────────────────────────────── */
 body {
-    background-color: #121212;
-    color: white;
-    font-family: 'Orbitron', sans-serif;
-    text-align: center;
-    padding: 20px;
+  margin: 0;
+  padding: 20px;
+  background-color: #121212;
+  color: #ffffff;
+  font-family: 'Orbitron', sans-serif;
+  text-align: center;
+  overflow-x: hidden;
 }
 
-/* Ticker Setup */
-.ticker {
-    position: relative;
-    overflow: hidden;
-    height: 30px;
-    margin-bottom: 15px;
-    background-color: transparent;
-    white-space: nowrap;
+/* ─── TICKER CONTAINER ─────────────────────────────────────────────────────── */
+#ticker-container {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  background-color: transparent;
+  margin-bottom: 15px;
+  height: 40px; /* give a bit more height for font/spacing */
 }
 
-.ticker-inner {
-    display: inline-block;
-    white-space: nowrap;
-    animation: scrollTicker 30s linear infinite;
+/* ─── TICKER LIST ────────────────────────────────────────────────────────────── */
+#ticker {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
+  /* Start fully to the right, move left by 50% of its own width */
+  animation: scrollTicker 30s linear infinite;
 }
 
+/* ─── EACH TICKER ITEM ───────────────────────────────────────────────────────── */
+.ticker-item {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 60px;
+  font-size: 1.2rem;
+}
+
+/* Drink name in ticker (bold) */
+.drink-name {
+  font-weight: bold;
+  margin-right: 6px;
+}
+
+/* Drink price in ticker */
+.drink-price {
+  margin-right: 6px;
+}
+
+/* Arrow styling based on direction */
+.arrow.up {
+  color: #00ff00;
+}
+.arrow.down {
+  color: #ff4b4b;
+}
+.arrow.flat {
+  color: #ffffff;
+}
+
+/* ─── KEYFRAMES FOR TICKER SCROLL ───────────────────────────────────────────────
+   Moves <ul id="ticker"> leftward from 0% → -50% of its width. Since we duplicate
+   all <li> items in JS, repeating the list gives a seamless marquee loop.
+*/
 @keyframes scrollTicker {
-    0% {
-        transform: translateX(0%);
-    }
-    100% {
-        transform: translateX(-50%);
-    }
+  0%   { transform: translateX(0%);   }
+  100% { transform: translateX(-50%); }
 }
 
-/* Chart Title */
+/* ─── CHART TITLE ─────────────────────────────────────────────────────────────── */
 .chart-title {
-    font-size: 22px;
-    margin-bottom: 8px;
+  font-size: 2rem;
+  margin-bottom: 8px;
+  color: #00ff00;
+  text-transform: uppercase;
 }
 
-/* Grid Layout */
-.grid {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    margin-top: 12px;
-    gap: 8px;
+/* ─── PLOTLY CONTAINER ───────────────────────────────────────────────────────── */
+/* (No explicit styles needed—Plotly uses the <div id="chart"> inline style) */
+
+/* ─── PRICE GRID ─────────────────────────────────────────────────────────────── */
+#price-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
 }
 
-.grid div {
-    font-size: 16px;
-    padding: 5px 10px;
-    background-color: #1e1e1e;
-    border-radius: 4px;
-    transition: background-color 0.3s ease;
+/* Each individual grid item */
+.grid-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background-color: #1e1e1e;
+  border-radius: 6px;
+  padding: 8px 12px;
+  min-width: 100px;
+  transition: background-color 0.3s ease;
+}
+
+/* Drink name in grid */
+.grid-name {
+  font-size: 0.9rem;
+  margin-bottom: 4px;
+  color: #ffffff;
+}
+
+/* Price in grid */
+.grid-price {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #00ff00;
 }
