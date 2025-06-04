@@ -23,6 +23,21 @@ DRINKS = {
     "Heineken":       "AXVZ5AHHXXJNW2MWHEHQKP2S"
 }
 
+# ─── ENSURE HISTORY TABLE EXISTS ────────────────────────────────────────────────
+# This block will create the `history` table if it does not already exist.
+conn = sqlite3.connect(DB_PATH)
+c = conn.cursor()
+c.execute("""
+CREATE TABLE IF NOT EXISTS history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    drink TEXT NOT NULL,
+    price REAL NOT NULL
+)
+""")
+conn.commit()
+conn.close()
+
 # ─── HELPERS ────────────────────────────────────────────────────────────────────
 def get_prices_from_square():
     """
