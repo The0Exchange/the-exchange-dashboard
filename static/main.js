@@ -1,14 +1,21 @@
-// ─── CONFIG/STATE ─────────────────────────────────────────────────────────────
+// ─── static/main.js ────────────────────────────────────────────────────────────
+
+// ─── CONFIG/STATE ──────────────────────────────────────────────────────────────
 const MAX_HISTORY = 300;           // max points to keep in the chart per drink
 let currentIndex = 0;              // which drink to show in the chart each cycle
 let drinks = [];                   // list of drink names (keys)
 let previousPrices = {};           // { "Bud Light": 4.12, … } from last fetch
 let chartInitialized = false;      // track whether Plotly has been initialized
+let activeDrink = null;            // which drink is currently displayed
 
 // Utility to get "HH:MM" in Eastern Time (for labeling new points)
 function getTimeLabel() {
   const now = new Date();
-  return now.toLocaleTimeString("en-US", { hour: '2-digit', minute: '2-digit' });
+  return now.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/New_York"
+  });
 }
 
 // ─── FETCH LIVE PRICES ────────────────────────────────────────────────────────
@@ -42,12 +49,13 @@ async function initChart(drink, livePrice) {
   const histArray = await fetchHistory(drink);
 
   // 2) Extract arrays for x (timestamps) and y (prices)
-  let times = histArray.map(pt => pt.timestamp);
+  let times = histArray.map(pt => new Date(pt.timestamp));
   let values = histArray.map(pt => pt.price);
 
   // 3) If there’s no history yet, seed with the current livePrice
   if (values.length === 0 && livePrice !== undefined) {
-    times = [getTimeLabel()];
+    const label = getTimeLabel();
+    times = [label];
     values = [livePrice];
   }
 
@@ -156,34 +164,37 @@ function updateGrid(prices) {
 }
 
 // ─── MAIN UPDATE LOOP ──────────────────────────────────────────────────────────
-// 1) Fetch /prices → 2) on first run, initPlotly with /history → 3) update ticker/grid → 4) append new point for current drink → cycle index
+// 1) Fetch /prices → 2) on first run or when drink changes, initPlotly with /history →
+// 3) update ticker/grid → 4) append new point for current drink → cycle index
 async function updateDashboard() {
   const prices = await fetchPrices();
   drinks = Object.keys(prices);
   if (drinks.length === 0) return;
 
-  // 1) On the very first run, initialize the chart for the first drink
-  if (!chartInitialized) {
-    const firstDrink = drinks[currentIndex];
-    await initChart(firstDrink, prices[firstDrink]);
+  const drink = drinks[currentIndex];
+  const livePrice = prices[drink];
+
+  // 1) If this is the first run OR the active drink has changed, re-initialize the chart
+  if (activeDrink !== drink) {
+    activeDrink = drink;
+    await initChart(drink, livePrice);
+  } else {
+    // 2) Otherwise, simply append the latest price to the existing chart
+    appendToChart(drink, livePrice);
   }
 
-  // 2) Ticker + Grid
+  // 3) Update ticker and grid unconditionally
   updateTicker(prices);
   updateGrid(prices);
 
-  // 3) Append new data point for the active drink
-  const drink = drinks[currentIndex];
-  const livePrice = prices[drink];
-  appendToChart(drink, livePrice);
-
-  // 4) Advance index (wrap-around)
-  currentIndex = (currentIndex + 1) % drinks.length;
-
-  // 5) Save prices for up/down coloring next tick
+  // 4) Save current prices for next comparison
   previousPrices = { ...prices };
+
+  // 5) Advance index (wrap-around) to rotate to the next drink next cycle
+  currentIndex = (currentIndex + 1) % drinks.length;
 }
 
 // Run once immediately, then every 10 seconds
 updateDashboard();
 setInterval(updateDashboard, 10000);
+
