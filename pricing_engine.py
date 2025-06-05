@@ -59,18 +59,20 @@ DRINKS = {
     "modelo":           "ZTFUVEXIA5AF7TRKA322R3U3"
 }
 
+# === PRICING PARAMETERS ===
 FLOOR_PRICE    = 2.00
-RANDOM_RANGE   = 0.10   # ±10% random walk
-ROLLING_WINDOW = 20
+RANDOM_RANGE   = 0.10    # ±10% random walk component
 
-# Track last‐purchase times (unused for drift; we track no_purchase_streak instead)
-last_purchase_time = { drink: None for drink in DRINKS }
+# Mean–reversion to $5 parameters
+TARGET_PRICE   = 5.00
+PRICE_LOW      = 2.00
+PRICE_HIGH     = 10.00
+ALPHA_AT_LOW   = 0.25    # α when price <= 2.00
+ALPHA_AT_MID   = 0.01    # α when price = 5.00
+ALPHA_AT_HIGH  = 0.25    # α when price >= 10.00
 
-# Track consecutive no‐purchase streaks per drink
+# Track consecutive no‐purchase streaks (for potential logging; drift is flat −0.01)
 no_purchase_streak = { drink: 0 for drink in DRINKS }
-
-# In-memory price history for mean reversion (rolling window)
-price_history = { drink: [] for drink in DRINKS }
 
 # US/Eastern timezone for active‐hours logic
 EASTERN = pytz.timezone("US/Eastern")
@@ -142,9 +144,9 @@ def simulate_real_square_purchase():
     variation_id = DRINKS[drink_key]
     print(f"[{drink_key}] Simulating {qty} purchase(s)…")
 
-    # Record purchase time for eventual use (not used for no_purchase_streak)
+    # Record purchase time (for logging; not used in drift)
     now_utc = datetime.now(tz=pytz.utc)
-    last_purchase_time[drink_key] = now_utc
+    last_purchase_time = now_utc  # (unused aside from potential logs)
 
     # Create Order
     order_url = f"{SQUARE_API_URL}/orders"
@@ -199,59 +201,56 @@ def simulate_real_square_purchase():
     return {drink_key: qty}
 
 
-def alpha_dynamic(price: float) -> float:
+def alpha_to_center(price: float) -> float:
     """
-    Return a dynamic mean-reversion factor α based on price:
-    - α = 0.01 when price = 5.0
-    - α ramps to 0.25 at price = 10.0 and also to 0.25 at price = 2.0
-    Linear interpolation between these anchor points.
+    Compute α for pulling price toward TARGET_PRICE (5.00):
+      • α = 0.25 at price <= 2.00
+      • α = 0.01 at price = 5.00
+      • α = 0.25 at price >= 10.00
+    Linearly interpolate for intermediate values.
     """
-    if price >= 5.0:
-        # Linear from (5.0, 0.01) to (10.0, 0.25)
-        return 0.01 + (price - 5.0) * (0.25 - 0.01) / (10.0 - 5.0)
+    if price <= PRICE_LOW:
+        return ALPHA_AT_LOW
+    elif price >= PRICE_HIGH:
+        return ALPHA_AT_HIGH
+    elif price < TARGET_PRICE:
+        # Map [2.0 → 5.0] → [0.25 → 0.01]
+        return ALPHA_AT_LOW - (price - PRICE_LOW) * (ALPHA_AT_LOW - ALPHA_AT_MID) / (TARGET_PRICE - PRICE_LOW)
     else:
-        # price < 5.0 → linear from (2.0, 0.25) to (5.0, 0.01)
-        return 0.25 - (5.0 - price) * (0.25 - 0.01) / (5.0 - 2.0)
+        # Map [5.0 → 10.0] → [0.01 → 0.25]
+        return ALPHA_AT_MID + (price - TARGET_PRICE) * (ALPHA_AT_HIGH - ALPHA_AT_MID) / (PRICE_HIGH - TARGET_PRICE)
 
 
 def apply_pricing_logic(drink: str, current_price: float, purchases: dict):
     """
-    Compute the new_price using:
-      - ±10% random walk
-      - Scaled purchase/no-purchase drift:
-          • If qty>0, purchase_drift = 0.01 * qty
-          • If no purchase, no_purchase_streak += 1, then no_purchase_drift = -min(0.01*streak, 0.03)
-      - Dynamic mean reversion α(t) based on new_price
-      - Floor at $2.00 (no cap)
+    1) Random walk: ±10%
+    2) Purchase drift (+0.01 * qty) or no‐purchase drift (−0.01)
+    3) Pull directly toward $5.00 with α defined by alpha_to_center()
+    4) Enforce floor at $2.00
     """
-    # 1) Random walk component (±10%)
+    # 1) Random walk component (a uniform fraction in [−0.10, +0.10])
     rand_comp = random.uniform(-RANDOM_RANGE, RANDOM_RANGE)
 
-    # 2) Purchase/no-purchase drift
+    # 2) Purchase vs. no‐purchase drift
     if drink in purchases:
         qty = purchases[drink]
         purchase_comp = 0.01 * qty
         no_purchase_streak[drink] = 0
     else:
+        purchase_comp = -0.01
         no_purchase_streak[drink] += 1
-        purchase_comp = max(-0.01 * no_purchase_streak[drink], -0.03)
 
-    # 3) Preliminary new price
+    # Construct preliminary price
     new_price = current_price * (1 + rand_comp + purchase_comp)
 
-    # 4) Rolling mean of last ROLLING_WINDOW points
-    history = price_history[drink]
-    history.append(current_price)
-    if len(history) > ROLLING_WINDOW:
-        history.pop(0)
-    mean_price = sum(history) / len(history)
+    # 3) Mean‐reversion directly toward $5.00
+    alpha = alpha_to_center(new_price)
+    new_price += (TARGET_PRICE - new_price) * alpha
 
-    # 5) Dynamic mean reversion
-    alpha = alpha_dynamic(new_price)
-    new_price += (mean_price - new_price) * alpha
+    # 4) Enforce floor at $2.00
+    if new_price < FLOOR_PRICE:
+        new_price = FLOOR_PRICE
 
-    # 6) Enforce floor only (no upper cap)
-    new_price = max(FLOOR_PRICE, new_price)
     return round(new_price, 2)
 
 
@@ -308,7 +307,6 @@ def run_engine():
                 conn.close()
 
             time.sleep(60)
-
         else:
             secs = seconds_until_next_4pm_eastern()
             hrs  = int(secs // 3600)
