@@ -48,6 +48,9 @@ async function initChart(drink, livePrice) {
   // 1) Fetch the full history array from the server
   const histArray = await fetchHistory(drink);
 
+  // ─── INSERTED CONSOLE.LOG TO INSPECT HISTARRAY ────────────────────────────────
+  console.log("fetchHistory returned for", drink, "→", histArray);
+
   // 2) Extract arrays for x (timestamps) and y (prices)
   let times = histArray.map(pt => new Date(pt.timestamp));
   let values = histArray.map(pt => pt.price);
@@ -197,4 +200,5 @@ async function updateDashboard() {
 // Run once immediately, then every 10 seconds
 updateDashboard();
 setInterval(updateDashboard, 10000);
+
 
