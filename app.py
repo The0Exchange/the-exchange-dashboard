@@ -10,21 +10,35 @@ PORT         = int(os.environ.get("PORT", 5000))
 ACCESS_TOKEN = os.getenv("SQUARE_ACCESS_TOKEN", "")
 DB_PATH      = os.path.join(os.path.dirname(__file__), "price_history.db")
 
+# Keys here are the friendly display names; values are Square variation IDs.
 DRINKS = {
+    "Bud Light":      "3DQO6KCAEQPMPTZIHJ3HA3KP",
+    "Budweiser":      "SB723UTQLPRBLIIE27ZBGHZ7",
     "Busch Light":    "SPUC5B5SGD7SXTYW3VSNVVAV",
     "Coors Light":    "NO3AZ4JDPGQJYR23GZVFSAUA",
-    "Michelob Ultra": "KAMYKBVWOHTPHREECKQONYZA",
-    "Modelo":         "ZTFUVEXIA5AF7TRKA322R3U3",
-    "Bud Light":      "3DQO6KCAEQPMPTZIHJ3HA3KP",
-    "Miller Light":   "KAJM3ISSH2TYK7GGAJ2R4XF3",
     "Corona Light":   "J3QW2HGXZ2VFFYWXOHHCMFIK",
-    "Budweiser":      "SB723UTQLPRBLIIE27ZBGHZ7",
     "Guinness":       "BUVRMGQPP347WIFSEVKLTYO6",
-    "Heineken":       "AXVZ5AHHXXJNW2MWHEHQKP2S"
+    "Heineken":       "AXVZ5AHHXXJNW2MWHEHQKP2S",
+    "Michelob Ultra": "KAMYKBVWOHTPHREECKQONYZA",
+    "Miller Light":   "KAJM3ISSH2TYK7GGAJ2R4XF3",
+    "Modelo":         "ZTFUVEXIA5AF7TRKA322R3U3"
+}
+
+# Map display‐names → internal “underscored” keys for SQLite storage
+DISPLAY_TO_KEY = {
+    "Bud Light":      "bud_light",
+    "Budweiser":      "budweiser",
+    "Busch Light":    "busch_light",
+    "Coors Light":    "coors_light",
+    "Corona Light":   "corona_light",
+    "Guinness":       "guinness",
+    "Heineken":       "heineken",
+    "Michelob Ultra": "michelob_ultra",
+    "Miller Light":   "miller_light",
+    "Modelo":         "modelo"
 }
 
 # ─── ENSURE HISTORY TABLE EXISTS ────────────────────────────────────────────────
-# This block will create the `history` table if it does not already exist.
 conn = sqlite3.connect(DB_PATH)
 c = conn.cursor()
 c.execute("""
@@ -42,7 +56,7 @@ conn.close()
 def get_prices_from_square():
     """
     Fetch live prices from Square’s Catalog API.
-    Returns a dict { "Busch Light": 4.15, … } on success.
+    Returns a dict { "Bud Light": 4.15, … } on success.
     On error or missing token, returns {}.
     """
     if not ACCESS_TOKEN:
@@ -73,64 +87,41 @@ def get_prices_from_square():
                     result[name] = round(cents / 100.0, 2)
     return result
 
-
 # ─── ROUTES ─────────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
-    """
-    1) Attempt to fetch live prices from Square.
-       • If Square is offline or returns {}, render “offline.html” (503).
-    2) Otherwise, render the skeleton index.html. The client-side JS will
-       fetch both /prices and /history/<drink> to populate ticker, grid, and chart.
-    """
     live = get_prices_from_square()
     if not live:
         return render_template("offline.html"), 503
-
     return render_template("index.html")
-
 
 @app.route("/prices")
 def prices_api():
-    """
-    Returns live prices JSON: { "Busch Light": 4.15, … }.
-    """
     return jsonify(get_prices_from_square())
-
 
 @app.route("/history/<drink>")
 def history_api(drink):
     """
-    Returns the full price history for a given drink from SQLite, in ascending
-    timestamp order. JSON format:
-      [
-        { "timestamp": "2025-06-04T17:01:00Z", "price": 4.23 },
-        { "timestamp": "2025-06-04T17:02:00Z", "price": 4.30 },
-        …
-      ]
-    If the drink name is not recognized, returns 404 with an empty list.
+    Accepts display‐names like "Bud Light" and maps them to the underscore key 
+    in the database. If unknown, returns 404 with [].
     """
-    # Only allow known drink names
-    if drink not in DRINKS:
+    if drink not in DISPLAY_TO_KEY:
         return jsonify([]), 404
 
+    key = DISPLAY_TO_KEY[drink]
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute(
         "SELECT timestamp, price FROM history WHERE drink = ? ORDER BY timestamp ASC",
-        (drink,)
+        (key,)
     )
     rows = c.fetchall()
     conn.close()
 
-    # Convert rows into JSON-serializable list of dicts
-    history_data = []
-    for ts, price in rows:
-        history_data.append({"timestamp": ts, "price": price})
-
+    history_data = [ {"timestamp": ts, "price": price} for ts, price in rows ]
     return jsonify(history_data)
-
 
 # ─── MAIN ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False)
+
