@@ -7,28 +7,37 @@
   <!-- Static CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
 
-  <!-- Orbitron font (optional) -->
+  <!-- Orbitron font -->
   <link href="https://fonts.googleapis.com/css2?family=Orbitron&display=swap" rel="stylesheet" />
 
-  <!-- Plotly library (for main.js to use) -->
+  <!-- Plotly library -->
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 </head>
 <body>
-  <!-- Ticker container -->
+  <!-- ─── TOP ROTATING TICKER ──────────────────────────────────────────────────── -->
   <div id="ticker-container">
     <ul id="ticker"></ul>
   </div>
 
-  <!-- Chart title -->
-  <div id="chart-title" class="chart-title">Loading…</div>
+  <!-- ─── CHART TITLE (we’ll fill this from JS) ───────────────────────────────── -->
+  <div id="chart-title" class="chart-title"></div>
 
-  <!-- Plotly chart -->
+  <!-- ─── PLOTLY CHART (staticPlot:true to disable interactivity) ─────────────── -->
   <div id="chart" style="width:100%; height:60vh;"></div>
 
-  <!-- Price grid -->
+  <!-- ─── PRICE GRID (bottom price tabs) ──────────────────────────────────────── -->
   <div id="price-grid" class="grid"></div>
 
-  <!-- main.js will handle polling /prices and updating everything -->
+  <!-- ─── PURCHASE HISTORY (new panel below price grid) ───────────────────────── -->
+  <div id="purchase-history-container">
+    <h2>Purchase History</h2>
+    <div id="purchase-history" class="history-columns">
+      <div id="col-1" class="history-column"></div>
+      <div id="col-2" class="history-column"></div>
+    </div>
+  </div>
+
+  <!-- ─── MAIN.JS (handles polling /prices, /history, /purchases) ─────────────── -->
   <script src="{{ url_for('static', filename='main.js') }}"></script>
 </body>
 </html>
