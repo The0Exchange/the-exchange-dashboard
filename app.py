@@ -49,6 +49,17 @@ CREATE TABLE IF NOT EXISTS history (
     price REAL NOT NULL
 )
 """)
+# ─── ENSURE PURCHASES TABLE EXISTS ──────────────────────────────────────────────
+# (If you already have a purchases table, you can comment this out or drop/modify as needed.)
+c.execute("""
+CREATE TABLE IF NOT EXISTS purchases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    drink TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    price REAL NOT NULL
+)
+""")
 conn.commit()
 conn.close()
 
@@ -118,8 +129,36 @@ def history_api(drink):
     rows = c.fetchall()
     conn.close()
 
-    history_data = [ {"timestamp": ts, "price": price} for ts, price in rows ]
+    history_data = [{"timestamp": ts, "price": price} for ts, price in rows]
     return jsonify(history_data)
+
+@app.route("/purchases")
+def purchases_api():
+    """
+    Returns the most recent 40 purchase records, newest first:
+    [ { timestamp, drink, quantity, price }, … ]
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT timestamp, drink, quantity, price
+        FROM purchases
+        ORDER BY timestamp DESC
+        LIMIT 40
+    """)
+    rows = c.fetchall()
+    conn.close()
+
+    purchases = [
+        {
+            "timestamp": ts,
+            "drink": drink,
+            "quantity": qty,
+            "price": price
+        }
+        for ts, drink, qty, price in rows
+    ]
+    return jsonify(purchases)
 
 # ─── MAIN ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
