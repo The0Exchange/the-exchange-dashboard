@@ -16,7 +16,7 @@ body {
   overflow: hidden;
   background-color: transparent;
   margin-bottom: 15px;
-  height: 40px; /* give a bit more height for font/spacing */
+  height: 40px;
 }
 
 /* ─── TICKER LIST ────────────────────────────────────────────────────────────── */
@@ -26,30 +26,23 @@ body {
   margin: 0;
   padding: 0;
   white-space: nowrap;
-  /* Start fully to the right, move left by 50% of its own width */
   animation: scrollTicker 30s linear infinite;
 }
 
-/* ─── EACH TICKER ITEM ───────────────────────────────────────────────────────── */
+/* ─── TICKER ITEM ────────────────────────────────────────────────────────────── */
 .ticker-item {
   display: inline-flex;
   align-items: center;
   margin-right: 60px;
   font-size: 1.2rem;
 }
-
-/* Drink name in ticker (bold) */
 .drink-name {
   font-weight: bold;
   margin-right: 6px;
 }
-
-/* Drink price in ticker */
 .drink-price {
   margin-right: 6px;
 }
-
-/* Arrow styling based on direction */
 .arrow.up {
   color: #00ff00;
 }
@@ -60,25 +53,19 @@ body {
   color: #ffffff;
 }
 
-/* ─── KEYFRAMES FOR TICKER SCROLL ───────────────────────────────────────────────
-   Moves <ul id="ticker"> leftward from 0% → -50% of its width. Since we duplicate
-   all <li> items in JS, repeating the list gives a seamless marquee loop.
-*/
+/* ─── KEYFRAMES FOR TICKER ───────────────────────────────────────────────────── */
 @keyframes scrollTicker {
-  0%   { transform: translateX(0%);   }
+  0%   { transform: translateX(0%); }
   100% { transform: translateX(-50%); }
 }
 
-/* ─── CHART TITLE ─────────────────────────────────────────────────────────────── */
+/* ─── CHART TITLE ───────────────────────────────────────────────────────────── */
 .chart-title {
   font-size: 2rem;
   margin-bottom: 8px;
   color: #00ff00;
   text-transform: uppercase;
 }
-
-/* ─── PLOTLY CONTAINER ───────────────────────────────────────────────────────── */
-/* (No explicit styles needed—Plotly uses the <div id="chart"> inline style) */
 
 /* ─── PRICE GRID ─────────────────────────────────────────────────────────────── */
 #price-grid {
@@ -88,8 +75,6 @@ body {
   gap: 8px;
   margin-top: 12px;
 }
-
-/* Each individual grid item */
 .grid-item {
   display: flex;
   flex-direction: column;
@@ -100,17 +85,78 @@ body {
   min-width: 100px;
   transition: background-color 0.3s ease;
 }
-
-/* Drink name in grid */
 .grid-name {
   font-size: 0.9rem;
   margin-bottom: 4px;
   color: #ffffff;
 }
-
-/* Price in grid */
 .grid-price {
   font-size: 1.2rem;
   font-weight: bold;
   color: #00ff00;
 }
+
+/* ─── FLASH CLASSES FOR PRICE GRID ────────────────────────────────────────────── */
+/* We temporarily override background-color to a darker green/red, then remove after 800ms */
+.up-flash {
+  animation: flashUp 0.8s ease-out;
+}
+@keyframes flashUp {
+  0%   { background-color: #1a5c1a; }
+  100% { background-color: #1e1e1e; }
+}
+.down-flash {
+  animation: flashDown 0.8s ease-out;
+}
+@keyframes flashDown {
+  0%   { background-color: #5c1a1a; }
+  100% { background-color: #1e1e1e; }
+}
+
+/* ─── PURCHASE HISTORY PANEL ─────────────────────────────────────────────────── */
+#purchase-history-container {
+  margin-top: 20px;
+  text-align: center;
+}
+#purchase-history-container h2 {
+  font-size: 1.8rem;
+  color: #ffffff;
+  margin-bottom: 10px;
+}
+.history-columns {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+.history-column {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 250px;
+}
+.history-item {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  background-color: #1e1e1e;
+  margin-bottom: 4px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+.history-item .hist-time {
+  color: #aaa;
+  margin-right: 6px;
+}
+.history-item .hist-drink {
+  color: #00ff00;
+  margin-right: 6px;
+}
+.history-item .hist-qty {
+  color: #ffffff;
+  margin-right: 6px;
+}
+.history-item .hist-price {
+  color: #ffffff;
+}
+
