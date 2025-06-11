@@ -27,6 +27,22 @@ function getTimeLabel() {
   });
 }
 
+// Build arrays for upward (green) and downward (red) line segments
+function buildSegmentTraces(times, values) {
+  const upX = [], upY = [];
+  const downX = [], downY = [];
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] >= values[i - 1]) {
+      upX.push(times[i - 1], times[i], null);
+      upY.push(values[i - 1], values[i], null);
+    } else {
+      downX.push(times[i - 1], times[i], null);
+      downY.push(values[i - 1], values[i], null);
+    }
+  }
+  return { upX, upY, downX, downY };
+}
+
 // ─── FETCH LIVE PRICES ────────────────────────────────────────────────────────
 async function fetchPrices() {
   try {
@@ -80,9 +96,9 @@ async function initChart(drink, livePrice) {
     values = [livePrice];
   }
 
-  // 4) Build the Plotly trace, with a per-marker color array:
-  //    • First point is green by default
-  //    • Subsequent points: green if price rose vs previous, red if fell, white if flat
+  // 4) Build traces for line segments and markers
+  //    • Markers: color per point (green ↑, red ↓, white →)
+  //    • Line segments: green if rising, red if falling
   const markerColors = values.map((v, i) => {
     if (i === 0) return "lime";
     if (v > values[i - 1]) return "lime";
@@ -90,14 +106,11 @@ async function initChart(drink, livePrice) {
     return "#ffffff";
   });
 
-  const trace = {
-    x: times,
-    y: values,
-    mode: "lines+markers",
-    name: drink,
-    line:   { color: "lime", width: 2 },
-    marker: { size: 6, color: markerColors }
-  };
+  const { upX, upY, downX, downY } = buildSegmentTraces(times, values);
+
+  const upTrace = { x: upX, y: upY, mode: "lines", line: { color: "lime", width: 2 }, showlegend: false };
+  const downTrace = { x: downX, y: downY, mode: "lines", line: { color: "red", width: 2 }, showlegend: false };
+  const markerTrace = { x: times, y: values, mode: "markers", marker: { size: 6, color: markerColors }, showlegend: false, name: drink };
 
   // 5) Layout: no built-in title (we write our own), hide x-axis labels, white on dark
   const layout = {
@@ -117,7 +130,7 @@ async function initChart(drink, livePrice) {
   // 6) staticPlot:true → disables all zoom/hover/toolbar
   const config = { staticPlot: true };
 
-  Plotly.newPlot("chart", [trace], layout, config);
+  Plotly.newPlot("chart", [upTrace, downTrace, markerTrace], layout, config);
   chartInitialized = true;
   activeDrink = drink;
 
@@ -128,11 +141,12 @@ async function initChart(drink, livePrice) {
 // ─── APPEND A SINGLE NEW PRICE POINT ───────────────────────────────────────────
 function appendToChart(drink, price) {
   const chartDiv = document.getElementById("chart");
-  if (!chartDiv.data || chartDiv.data[0].name !== drink) return;
+  if (!chartDiv.data || chartDiv.data.length < 3 || chartDiv.data[2].name !== drink) return;
 
   const nowLabel = new Date();
-  const prevVals  = chartDiv.data[0].y;
-  const prevMarks = chartDiv.data[0].marker.color;
+  const prevVals  = chartDiv.data[2].y;
+  const prevMarks = chartDiv.data[2].marker.color;
+  const prevTimes = chartDiv.data[2].x;
 
   // Determine new marker color
   const lastVal = prevVals[prevVals.length - 1];
@@ -143,17 +157,24 @@ function appendToChart(drink, price) {
 
   // 1) Extend marker.color array by one newColor
   const newMarkerColors = [ ...prevMarks, newColor ];
-  Plotly.restyle("chart", { "marker.color": [ newMarkerColors ] }, [0]);
+  Plotly.restyle("chart", { "marker.color": [ newMarkerColors ] }, [2]);
 
-  // 2) Extend the actual trace (x, y) with the new point
-  Plotly.extendTraces("chart", { x: [[nowLabel]], y: [[price]] }, [0]);
+  // 2) Extend the appropriate line segment trace and marker trace
+  const prevTime = prevTimes[prevTimes.length - 1];
+  const segData = { x: [[prevTime, nowLabel, null]], y: [[lastVal, price, null]] };
+  if (price >= lastVal) {
+    Plotly.extendTraces("chart", segData, [0]);
+  } else {
+    Plotly.extendTraces("chart", segData, [1]);
+  }
+  Plotly.extendTraces("chart", { x: [[nowLabel]], y: [[price]] }, [2]);
 
   // 3) If too many points, “window” the x-axis to last MAX_HISTORY
-  const currentLength = chartDiv.data[0].x.length;
+  const currentLength = chartDiv.data[2].x.length;
   if (currentLength > MAX_HISTORY) {
     const startIdx = currentLength - MAX_HISTORY;
-    const x0 = chartDiv.data[0].x[startIdx];
-    const x1 = chartDiv.data[0].x[currentLength - 1];
+    const x0 = chartDiv.data[2].x[startIdx];
+    const x1 = chartDiv.data[2].x[currentLength - 1];
     Plotly.relayout("chart", { "xaxis.range": [x0, x1] });
   }
 }
@@ -274,9 +295,14 @@ async function updateDashboard() {
   const chartTitleEl = document.getElementById("chart-title");
 
   if (!nowOpen) {
-    // ─── MARKET CLOSED ───────────────────────────────────────────────────────────
-    // Show "Market Closed" header, freeze the existing chart (no re-init or append).
+    // ─── MARKET CLOSED ───────────────────────────────────────────────────────
+    // Show "Market Closed" header and clear the chart so the next open starts fresh.
     chartTitleEl.innerText = "Market Closed";
+    if (chartInitialized) {
+      Plotly.purge("chart");
+      chartInitialized = false;
+      activeDrink = null;
+    }
     // Still update ticker & grid so they “freeze” on last known prices
     updateTicker(prices);
     updateGrid(prices);
