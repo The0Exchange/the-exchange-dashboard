@@ -36,6 +36,15 @@ CREATE TABLE IF NOT EXISTS history (
     price REAL NOT NULL
 )
 """)
+c.execute("""
+CREATE TABLE IF NOT EXISTS purchases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    drink TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    price REAL NOT NULL
+)
+""")
 conn.commit()
 conn.close()
 
@@ -198,6 +207,21 @@ def simulate_real_square_purchase():
         return {drink_key: qty}
 
     print(f"[{drink_key}] ✔️ Order {order_id} paid for ${total_cents/100:.2f}")
+
+    # Record purchase locally so the dashboard can display history
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c    = conn.cursor()
+        now_ts = datetime.now(tz=pytz.utc).isoformat()
+        c.execute(
+            "INSERT INTO purchases (timestamp, drink, quantity, price) VALUES (?, ?, ?, ?)",
+            (now_ts, drink_key, qty, total_cents / 100.0)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"  [{drink_key}] ⚠️ Failed to record purchase locally: {e}")
+
     return {drink_key: qty}
 
 
@@ -274,6 +298,7 @@ def seconds_until_next_4pm_eastern():
 
 def run_engine():
     print("Starting pricing engine (active 4 PM–12 AM Eastern)…")
+    last_reset_date = None
 
     while True:
         now_utc = datetime.now(tz=pytz.utc)
@@ -281,6 +306,19 @@ def run_engine():
         hour = now_eastern.hour
 
         if 16 <= hour < 24:
+            # Reset price history once at the start of each market day
+            if last_reset_date != now_eastern.date():
+                try:
+                    conn = sqlite3.connect(DB_PATH)
+                    c    = conn.cursor()
+                    c.execute("DELETE FROM history")
+                    conn.commit()
+                    conn.close()
+                    last_reset_date = now_eastern.date()
+                    print("[Reset] Cleared previous price history")
+                except Exception as e:
+                    print(f"[Reset] Failed to clear history: {e}")
+
             # 1) Simulate purchases
             purchases = simulate_real_square_purchase()
 

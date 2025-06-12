@@ -2,6 +2,8 @@ import os
 import sqlite3
 from flask import Flask, render_template, jsonify
 import requests
+from datetime import datetime
+import pytz
 
 app = Flask(__name__)
 
@@ -140,12 +142,14 @@ def purchases_api():
     """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         SELECT timestamp, drink, quantity, price
         FROM purchases
         ORDER BY timestamp DESC
         LIMIT 40
-    """)
+        """
+    )
     rows = c.fetchall()
     conn.close()
 
