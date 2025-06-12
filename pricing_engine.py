@@ -297,18 +297,19 @@ def run_engine():
         hour = now_eastern.hour
 
         if 16 <= hour < 24:
-            # Reset history table once at the start of each market day
+            # Reset history and purchases once at the start of each market day
             if last_reset_date != now_eastern.date():
                 try:
                     conn = sqlite3.connect(DB_PATH)
                     c    = conn.cursor()
                     c.execute("DELETE FROM history")
+                    c.execute("DELETE FROM purchases")
                     conn.commit()
                     conn.close()
                     last_reset_date = now_eastern.date()
-                    print("[Reset] Cleared previous price history")
+                    print("[Reset] Cleared previous price and purchase history")
                 except Exception as e:
-                    print(f"[Reset] Failed to clear history: {e}")
+                    print(f"[Reset] Failed to clear history/purchases: {e}")
 
             # 1) Simulate purchases
             purchases = simulate_real_square_purchase()
