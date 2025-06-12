@@ -1,0 +1,25 @@
+name: Codex Automation
+
+on:
+  workflow_dispatch:  # Manual trigger; change to push/schedule if needed
+
+jobs:
+  codex-task:
+    runs-on: ubuntu-latest
+    environment: Configure PAT  # Make sure this matches your environment name
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Configure Git
+      run: |
+        git config --global user.name "Codex Bot"
+        git config --global user.email "codex@example.com"
+
+    - name: Make a sample change
+      run: |
+        echo "Codex updated something at $(date)" >> codex-log.txt
+        git add .
+        git commit -m "Codex auto-commit"
+        git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }} HEAD:main
