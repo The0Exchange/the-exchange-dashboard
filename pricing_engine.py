@@ -76,9 +76,11 @@ RANDOM_RANGE   = 0.10    # ±10% random walk component
 TARGET_PRICE   = 5.00
 PRICE_LOW      = 2.00
 PRICE_HIGH     = 10.00
-ALPHA_AT_LOW   = 0.25    # α when price <= 2.00
-ALPHA_AT_MID   = 0.01    # α when price = 5.00
-ALPHA_AT_HIGH  = 0.25    # α when price >= 10.00
+# Mean reversion aggressiveness has been reduced so prices revert more gently
+# at the extreme bands.  All previous α values are halved.
+ALPHA_AT_LOW   = 0.125   # α when price <= 2.00
+ALPHA_AT_MID   = 0.005   # α when price = 5.00
+ALPHA_AT_HIGH  = 0.125   # α when price >= 10.00
 
 # Track consecutive no‐purchase streaks (for potential logging; drift is flat −0.01)
 no_purchase_streak = { drink: 0 for drink in DRINKS }
@@ -134,22 +136,40 @@ def update_square_price(drink, variation_id, new_price):
         print(f"[{drink}] ❌ Failed to update price: HTTP {upsert_resp.status_code}")
 
 
-def simulate_real_square_purchase():
+def purchase_prob(price: float) -> float:
+    """Return a probability in [0,1] where $2 → 1 and $10 → 0."""
+    if price <= PRICE_LOW:
+        return 1.0
+    if price >= PRICE_HIGH:
+        return 0.0
+    return 1.0 - (price - PRICE_LOW) / (PRICE_HIGH - PRICE_LOW)
+
+
+def simulate_real_square_purchase(prices: dict) -> dict:
+    """Simulate a purchase using current prices.
+
+    The chance of purchasing a drink decreases linearly as its price
+    approaches $10 and increases as it nears $2.  At $10 no purchase
+    occurs and at $2 a purchase always occurs.
+    Returns ``{drink_key: quantity}`` or ``{}`` if no purchase happens.
     """
-    Simulate purchases:
-      - 50% → no purchase (qty=0)
-      - 30% → qty=1
-      - 10% → qty=2
-      - 10% → qty=3
-    If qty>0, randomly pick one drink to purchase.
-    Returns { drink_key: quantity } or {} if none.
-    """
-    qty = random.choices([0, 1, 2, 3], weights=[0.5, 0.3, 0.1, 0.1])[0]
-    if qty == 0:
+    if not prices:
         print("[none] No purchase this cycle")
         return {}
 
-    drink_key = random.choice(list(DRINKS.keys()))
+    drink_keys = list(prices.keys())
+    weights = [purchase_prob(prices[d]) for d in drink_keys]
+    if sum(weights) == 0:
+        print("[none] No purchase this cycle")
+        return {}
+
+    drink_key = random.choices(drink_keys, weights=weights)[0]
+    p = purchase_prob(prices[drink_key])
+    if random.random() > p:
+        print("[none] No purchase this cycle")
+        return {}
+
+    qty = random.choices([1, 2, 3], weights=[0.6, 0.25, 0.15])[0]
     variation_id = DRINKS[drink_key]
     print(f"[{drink_key}] Simulating {qty} purchase(s)…")
 
@@ -228,9 +248,9 @@ def simulate_real_square_purchase():
 def alpha_to_center(price: float) -> float:
     """
     Compute α for pulling price toward TARGET_PRICE (5.00):
-      • α = 0.25 at price <= 2.00
-      • α = 0.01 at price = 5.00
-      • α = 0.25 at price >= 10.00
+      • α = 0.125 at price <= 2.00
+      • α = 0.005 at price = 5.00
+      • α = 0.125 at price >= 10.00
     Linearly interpolate for intermediate values.
     """
     if price <= PRICE_LOW:
@@ -238,10 +258,10 @@ def alpha_to_center(price: float) -> float:
     elif price >= PRICE_HIGH:
         return ALPHA_AT_HIGH
     elif price < TARGET_PRICE:
-        # Map [2.0 → 5.0] → [0.25 → 0.01]
+        # Map [2.0 → 5.0] → [0.125 → 0.005]
         return ALPHA_AT_LOW - (price - PRICE_LOW) * (ALPHA_AT_LOW - ALPHA_AT_MID) / (TARGET_PRICE - PRICE_LOW)
     else:
-        # Map [5.0 → 10.0] → [0.01 → 0.25]
+        # Map [5.0 → 10.0] → [0.005 → 0.125]
         return ALPHA_AT_MID + (price - TARGET_PRICE) * (ALPHA_AT_HIGH - ALPHA_AT_MID) / (PRICE_HIGH - TARGET_PRICE)
 
 
@@ -320,21 +340,25 @@ def run_engine():
                 except Exception as e:
                     print(f"[Reset] Failed to clear history/purchases: {e}")
 
-            # 1) Simulate purchases
-            purchases = simulate_real_square_purchase()
-
-            # 2) For each drink, fetch current price and compute new_price
+            # 1) Fetch current prices for all drinks
+            current_prices = {}
             for drink, variation_id in DRINKS.items():
                 try:
-                    current_price = get_square_price(variation_id, drink)
+                    current_prices[drink] = get_square_price(variation_id, drink)
                 except Exception as e:
                     print(f"[{drink}] Error retrieving price: {e}")
-                    continue
+                    current_prices[drink] = TARGET_PRICE
 
+            # 2) Simulate purchases using those prices
+            purchases = simulate_real_square_purchase(current_prices)
+
+            # 3) For each drink compute new price and update Square
+            for drink, variation_id in DRINKS.items():
+                current_price = current_prices.get(drink, TARGET_PRICE)
                 new_price = apply_pricing_logic(drink, current_price, purchases)
                 update_square_price(drink, variation_id, new_price)
 
-                # 3) Insert into SQLite history
+                # 4) Insert into SQLite history
                 conn = sqlite3.connect(DB_PATH)
                 c    = conn.cursor()
                 now_ts = datetime.now(tz=pytz.utc).isoformat()

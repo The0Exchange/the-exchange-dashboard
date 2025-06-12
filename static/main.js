@@ -69,12 +69,12 @@ async function fetchHistory(drink) {
   }
 }
 
-// ─── FETCH PURCHASE HISTORY (last 40, newest first) ─────────────────────────
+// ─── FETCH PURCHASE HISTORY (last 10, newest first) ─────────────────────────
 async function fetchPurchases() {
   try {
     const res = await fetch("/purchases");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json(); // [ { timestamp, drink, quantity, price }, … ]
+    return await res.json(); // [ { drink, quantity, price }, … ]
   } catch (err) {
     console.error("Failed to fetch /purchases:", err);
     return [];
@@ -264,24 +264,23 @@ async function renderPurchaseHistory() {
   col1.innerHTML = "";
   col2.innerHTML = "";
 
-  const filtered = activeDrink
-    ? purchases.filter(p => p.drink === activeDrink)
-    : purchases;
-  if (filtered.length === 0) {
+  // Always show the 10 most recent purchases regardless of active drink
+  const list = purchases.slice(0, 10);
+  if (list.length === 0) {
     // If there are no purchases at all, show a placeholder
     col1.innerHTML = `<div class="no-purchase-msg">No purchases yet</div>`;
     return;
   }
 
-  // Otherwise, show up to 40 entries, split 20/20 into two columns
-  filtered.forEach((p, idx) => {
+  // Otherwise, show up to 10 entries, split 5/5 into two columns
+  list.forEach((p, idx) => {
     const line = `
       <div class="history-item">
         <span class="hist-drink">${p.drink}</span>
         <span class="hist-qty">x${p.quantity}</span>
         <span class="hist-price">$${p.price.toFixed(2)}</span>
       </div>`;
-    if (idx < 20) {
+    if (idx < 5) {
       col1.insertAdjacentHTML("beforeend", line);
     } else {
       col2.insertAdjacentHTML("beforeend", line);
