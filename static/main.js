@@ -5,7 +5,6 @@ const MAX_HISTORY = 300;           // max points to keep in the chart per drink
 let currentIndex = 0;              // which drink to show in the chart each cycle
 let drinks = [];                   // list of drink names (keys)
 let previousPrices = {};           // { "Bud Light": 4.12, … } from last fetch
-let priceDirections = {};          // persistent up/down arrow state per drink
 let chartInitialized = false;      // true once Plotly.newPlot has been called
 let activeDrink = null;            // which drink is currently displayed
 
@@ -185,7 +184,6 @@ function updateTicker(prices) {
   const ticker = document.getElementById("ticker");
   if (!ticker) return;
 
-  // Track direction persistently so arrows stay consistent across refreshes
   Object.entries(prices).forEach(([name, price]) => {
     if (previousPrices[name] !== undefined) {
       if (price > previousPrices[name]) priceDirections[name] = "up";
@@ -222,7 +220,6 @@ function updateGrid(prices) {
   const grid = document.getElementById("price-grid");
   if (!grid) return;
 
-  // Track direction persistently like the ticker
   Object.entries(prices).forEach(([name, price]) => {
     if (previousPrices[name] !== undefined) {
       if (price > previousPrices[name]) priceDirections[name] = "up";
@@ -269,7 +266,6 @@ async function renderPurchaseHistory() {
   const filtered = activeDrink
     ? purchases.filter(p => p.drink === activeDrink)
     : purchases;
-
   if (filtered.length === 0) {
     // If there are no purchases at all, show a placeholder
     col1.innerHTML = `<div class="no-purchase-msg">No purchases yet</div>`;
@@ -278,13 +274,9 @@ async function renderPurchaseHistory() {
 
   // Otherwise, show up to 40 entries, split 20/20 into two columns
   filtered.forEach((p, idx) => {
-    const ts = new Date(p.timestamp).toLocaleString("en-US", {
-      hour12: false,
-      timeZone: "America/New_York"
-    });
+ main
     const line = `
       <div class="history-item">
-        <span class="hist-time">${ts}</span>
         <span class="hist-drink">${p.drink}</span>
         <span class="hist-qty">x${p.quantity}</span>
         <span class="hist-price">$${p.price.toFixed(2)}</span>
