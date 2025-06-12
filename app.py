@@ -10,6 +10,7 @@ app = Flask(__name__)
 # ─── CONFIGURATION ─────────────────────────────────────────────────────────────
 PORT         = int(os.environ.get("PORT", 5000))
 ACCESS_TOKEN = os.getenv("SQUARE_ACCESS_TOKEN", "")
+LOCATION_ID  = os.getenv("SQUARE_LOCATION_ID", "")
 DB_PATH      = os.path.join(os.path.dirname(__file__), "price_history.db")
 
 # Keys here are the friendly display names; values are Square variation IDs.
@@ -100,6 +101,64 @@ def get_prices_from_square():
                     result[name] = round(cents / 100.0, 2)
     return result
 
+
+def get_recent_purchases_from_square(limit=10):
+    """Return the ``limit`` most recent purchases from Square."""
+    if not ACCESS_TOKEN:
+        return []
+
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Square-Version": "2025-05-21",
+    }
+    try:
+        resp = requests.get(
+            "https://connect.squareupsandbox.com/v2/payments",
+            headers=headers,
+            params={"sort_order": "DESC", "limit": limit},
+            timeout=5,
+        )
+    except Exception:
+        return []
+
+    if resp.status_code != 200:
+        return []
+
+    payments = resp.json().get("payments", [])
+    results = []
+    for pay in payments:
+        order_id = pay.get("order_id")
+        created = pay.get("created_at")
+        if not order_id:
+            continue
+        try:
+            oresp = requests.get(
+                f"https://connect.squareupsandbox.com/v2/orders/{order_id}",
+                headers=headers,
+                timeout=5,
+            )
+        except Exception:
+            continue
+        if oresp.status_code != 200:
+            continue
+        order = oresp.json().get("order", {})
+        for li in order.get("line_items", []):
+            vid = li.get("catalog_object_id")
+            qty = int(li.get("quantity", "1"))
+            price_cents = li.get("base_price_money", {}).get("amount", 0)
+            name = None
+            for disp, target_vid in DRINKS.items():
+                if vid == target_vid:
+                    name = disp
+                    break
+            if name:
+                results.append(
+                    (created, {"drink": name, "quantity": qty, "price": round(price_cents / 100.0, 2)})
+                )
+
+    results.sort(key=lambda x: x[0], reverse=True)
+    return [r[1] for r in results[:limit]]
+
 # ─── ROUTES ─────────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
@@ -136,38 +195,8 @@ def history_api(drink):
 
 @app.route("/purchases")
 def purchases_api():
-    """
-    Returns the most recent 40 purchase records, newest first:
-    [ { timestamp, drink, quantity, price }, … ]
-    """
-    now_et = datetime.now(pytz.timezone("US/Eastern"))
-    start_et = now_et.replace(hour=0, minute=0, second=0, microsecond=0)
-    start_ts = start_et.astimezone(pytz.utc).isoformat()
-
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        """
-        SELECT timestamp, drink, quantity, price
-        FROM purchases
-        WHERE timestamp >= ?
-        ORDER BY timestamp DESC
-        LIMIT 40
-        """,
-        (start_ts,)
-    )
-    rows = c.fetchall()
-    conn.close()
-
-    purchases = [
-        {
-            "timestamp": ts,
-            "drink": drink,
-            "quantity": qty,
-            "price": price
-        }
-        for ts, drink, qty, price in rows
-    ]
+    """Return the most recent 10 purchases from Square."""
+    purchases = get_recent_purchases_from_square(limit=10)
     return jsonify(purchases)
 
 # ─── MAIN ──────────────────────────────────────────────────────────────────────
