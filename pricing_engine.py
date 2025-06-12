@@ -177,7 +177,20 @@ def simulate_real_square_purchase():
 
     if order_resp.status_code not in (200, 201):
         print(f"  [{drink_key}] ❌ Unable to create Square order (HTTP {order_resp.status_code})")
-        return {}
+        # Record the attempted purchase locally anyway so the dashboard isn't empty
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            c    = conn.cursor()
+            now_ts = datetime.now(tz=pytz.utc).isoformat()
+            c.execute(
+                "INSERT INTO purchases (timestamp, drink, quantity, price) VALUES (?, ?, ?, ?)",
+                (now_ts, drink_key, qty, 0.0)
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"  [{drink_key}] ⚠️ Failed to record purchase locally: {e}")
+        return {drink_key: qty}
 
     order_data = order_resp.json().get("order", {})
     order_id   = order_data.get("id")
@@ -204,6 +217,18 @@ def simulate_real_square_purchase():
 
     if pay_resp.status_code not in (200, 201):
         print(f"  [{drink_key}] ❌ Unable to pay order.")
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            c    = conn.cursor()
+            now_ts = datetime.now(tz=pytz.utc).isoformat()
+            c.execute(
+                "INSERT INTO purchases (timestamp, drink, quantity, price) VALUES (?, ?, ?, ?)",
+                (now_ts, drink_key, qty, total_cents / 100.0)
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"  [{drink_key}] ⚠️ Failed to record purchase locally: {e}")
         return {drink_key: qty}
 
     print(f"[{drink_key}] ✔️ Order {order_id} paid for ${total_cents/100:.2f}")

@@ -248,12 +248,12 @@ function updateGrid(prices) {
 
   grid.innerHTML = content;
 
-  // Remove the flash class after 800ms so the next update can flash again
+  // Remove the flash class after 2000ms so the next update can flash again
   setTimeout(() => {
     document.querySelectorAll(".up-flash, .down-flash").forEach(el => {
       el.classList.remove("up-flash", "down-flash");
     });
-  }, 800);
+  }, 2000);
 }
 
 // ─── UPDATE PURCHASE HISTORY PANEL ────────────────────────────────────────────
@@ -264,24 +264,22 @@ async function renderPurchaseHistory() {
   col1.innerHTML = "";
   col2.innerHTML = "";
 
-  const filtered = activeDrink
-    ? purchases.filter(p => p.drink === activeDrink)
-    : purchases;
-  if (filtered.length === 0) {
+  const limited = purchases.slice(0, 20);
+  if (limited.length === 0) {
     // If there are no purchases at all, show a placeholder
     col1.innerHTML = `<div class="no-purchase-msg">No purchases yet</div>`;
     return;
   }
 
-  // Otherwise, show up to 40 entries, split 20/20 into two columns
-  filtered.forEach((p, idx) => {
+  // Otherwise, show the most recent 20 entries split 10/10 into two columns
+  limited.forEach((p, idx) => {
     const line = `
       <div class="history-item">
         <span class="hist-drink">${p.drink}</span>
         <span class="hist-qty">x${p.quantity}</span>
         <span class="hist-price">$${p.price.toFixed(2)}</span>
       </div>`;
-    if (idx < 20) {
+    if (idx < 10) {
       col1.insertAdjacentHTML("beforeend", line);
     } else {
       col2.insertAdjacentHTML("beforeend", line);
