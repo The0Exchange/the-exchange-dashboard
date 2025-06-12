@@ -259,32 +259,26 @@ function updateGrid(prices) {
 // ─── UPDATE PURCHASE HISTORY PANEL ────────────────────────────────────────────
 async function renderPurchaseHistory() {
   const purchases = await fetchPurchases(); // newest first
-  const col1 = document.getElementById("col-1");
-  const col2 = document.getElementById("col-2");
-  col1.innerHTML = "";
-  col2.innerHTML = "";
+  const container = document.getElementById("purchase-history");
+  container.innerHTML = "";
 
   // Always show the 10 most recent purchases regardless of active drink
   const list = purchases.slice(0, 10);
   if (list.length === 0) {
     // If there are no purchases at all, show a placeholder
-    col1.innerHTML = `<div class="no-purchase-msg">No purchases yet</div>`;
+    container.innerHTML = `<div class="no-purchase-msg">No purchases yet</div>`;
     return;
   }
 
-  // Otherwise, show up to 10 entries, split 5/5 into two columns
-  list.forEach((p, idx) => {
+  // Otherwise, show up to 10 entries sequentially (grid handles layout)
+  list.forEach((p) => {
     const line = `
       <div class="history-item">
         <span class="hist-drink">${p.drink}</span>
         <span class="hist-qty">x${p.quantity}</span>
         <span class="hist-price">$${p.price.toFixed(2)}</span>
       </div>`;
-    if (idx < 5) {
-      col1.insertAdjacentHTML("beforeend", line);
-    } else {
-      col2.insertAdjacentHTML("beforeend", line);
-    }
+    container.insertAdjacentHTML("beforeend", line);
   });
 }
 
