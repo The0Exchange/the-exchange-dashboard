@@ -5,7 +5,6 @@ const MAX_HISTORY = 300;           // max points to keep in the chart per drink
 let currentIndex = 0;              // which drink to show in the chart each cycle
 let drinks = [];                   // list of drink names (keys)
 let previousPrices = {};           // { "Bud Light": 4.12, … } from last fetch
-let priceDirections = {};          // persistent arrow state per drink
 let chartInitialized = false;      // true once Plotly.newPlot has been called
 let activeDrink = null;            // which drink is currently displayed
 
@@ -185,7 +184,6 @@ function updateTicker(prices) {
   const ticker = document.getElementById("ticker");
   if (!ticker) return;
 
-  // Update persistent direction state when prices change
   Object.entries(prices).forEach(([name, price]) => {
     if (previousPrices[name] !== undefined) {
       if (price > previousPrices[name]) priceDirections[name] = "up";
@@ -222,7 +220,6 @@ function updateGrid(prices) {
   const grid = document.getElementById("price-grid");
   if (!grid) return;
 
-  // Update persistent direction state similar to the ticker
   Object.entries(prices).forEach(([name, price]) => {
     if (previousPrices[name] !== undefined) {
       if (price > previousPrices[name]) priceDirections[name] = "up";
@@ -277,6 +274,7 @@ async function renderPurchaseHistory() {
 
   // Otherwise, show up to 40 entries, split 20/20 into two columns
   filtered.forEach((p, idx) => {
+ main
     const line = `
       <div class="history-item">
         <span class="hist-drink">${p.drink}</span>

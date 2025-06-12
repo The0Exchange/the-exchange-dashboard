@@ -36,6 +36,15 @@ CREATE TABLE IF NOT EXISTS history (
     price REAL NOT NULL
 )
 """)
+c.execute("""
+CREATE TABLE IF NOT EXISTS purchases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    drink TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    price REAL NOT NULL
+)
+""")
 conn.commit()
 conn.close()
 
