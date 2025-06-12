@@ -5,6 +5,7 @@ const MAX_HISTORY = 300;           // max points to keep in the chart per drink
 let currentIndex = 0;              // which drink to show in the chart each cycle
 let drinks = [];                   // list of drink names (keys)
 let previousPrices = {};           // { "Bud Light": 4.12, … } from last fetch
+let priceDirections = {};          // persistent up/down arrow state per drink
 let chartInitialized = false;      // true once Plotly.newPlot has been called
 let activeDrink = null;            // which drink is currently displayed
 
@@ -184,12 +185,19 @@ function updateTicker(prices) {
   const ticker = document.getElementById("ticker");
   if (!ticker) return;
 
-  const baseItems = Object.entries(prices).map(([name, price]) => {
-    let direction = "flat";
+  // Track direction persistently so arrows stay consistent across refreshes
+  Object.entries(prices).forEach(([name, price]) => {
     if (previousPrices[name] !== undefined) {
-      if (price > previousPrices[name]) direction = "up";
-      else if (price < previousPrices[name]) direction = "down";
+      if (price > previousPrices[name]) priceDirections[name] = "up";
+      else if (price < previousPrices[name]) priceDirections[name] = "down";
+      else if (!priceDirections[name]) priceDirections[name] = "flat";
+    } else if (!priceDirections[name]) {
+      priceDirections[name] = "flat";
     }
+  });
+
+  const baseItems = Object.entries(prices).map(([name, price]) => {
+    const direction = priceDirections[name] || "flat";
     const arrow = direction === "up"   ? "▲"
                 : direction === "down" ? "▼"
                 : "–";
@@ -214,20 +222,29 @@ function updateGrid(prices) {
   const grid = document.getElementById("price-grid");
   if (!grid) return;
 
-  const content = Object.entries(prices).map(([name, price]) => {
-    let priceClass = "flat";               // default: no flash
-    let bgColor    = "#1e1e1e";            // default dark
-    if (previousPrices[name] !== undefined && price !== previousPrices[name]) {
-      if (price > previousPrices[name]) {
-        priceClass = "up-flash";           // dark green flash
-      } else {
-        priceClass = "down-flash";         // dark red flash
-      }
+  // Track direction persistently like the ticker
+  Object.entries(prices).forEach(([name, price]) => {
+    if (previousPrices[name] !== undefined) {
+      if (price > previousPrices[name]) priceDirections[name] = "up";
+      else if (price < previousPrices[name]) priceDirections[name] = "down";
+      else if (!priceDirections[name]) priceDirections[name] = "flat";
+    } else if (!priceDirections[name]) {
+      priceDirections[name] = "flat";
     }
+  });
+
+  const content = Object.entries(prices).map(([name, price]) => {
+    let flashClass = "";
+    if (previousPrices[name] !== undefined && price !== previousPrices[name]) {
+      flashClass = price > previousPrices[name] ? "up-flash" : "down-flash";
+    }
+    const dir = priceDirections[name] || "flat";
+    const priceClass = dir === "up" ? "up" : dir === "down" ? "down" : "flat";
+
     return `
-      <div class="grid-item ${priceClass}" style="background-color: ${bgColor}">
+      <div class="grid-item ${flashClass}">
         <span class="grid-name">${name}</span>
-        <span class="grid-price">${price.toFixed(2)}</span>
+        <span class="grid-price ${priceClass}">${price.toFixed(2)}</span>
       </div>`;
   }).join("");
 
@@ -237,7 +254,6 @@ function updateGrid(prices) {
   setTimeout(() => {
     document.querySelectorAll(".up-flash, .down-flash").forEach(el => {
       el.classList.remove("up-flash", "down-flash");
-      el.style.backgroundColor = "#1e1e1e";
     });
   }, 800);
 }
@@ -250,14 +266,18 @@ async function renderPurchaseHistory() {
   col1.innerHTML = "";
   col2.innerHTML = "";
 
-  if (purchases.length === 0) {
+  const filtered = activeDrink
+    ? purchases.filter(p => p.drink === activeDrink)
+    : purchases;
+
+  if (filtered.length === 0) {
     // If there are no purchases at all, show a placeholder
     col1.innerHTML = `<div class="no-purchase-msg">No purchases yet</div>`;
     return;
   }
 
   // Otherwise, show up to 40 entries, split 20/20 into two columns
-  purchases.forEach((p, idx) => {
+  filtered.forEach((p, idx) => {
     const ts = new Date(p.timestamp).toLocaleString("en-US", {
       hour12: false,
       timeZone: "America/New_York"

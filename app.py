@@ -2,6 +2,8 @@ import os
 import sqlite3
 from flask import Flask, render_template, jsonify
 import requests
+from datetime import datetime
+import pytz
 
 app = Flask(__name__)
 
@@ -138,14 +140,22 @@ def purchases_api():
     Returns the most recent 40 purchase records, newest first:
     [ { timestamp, drink, quantity, price }, … ]
     """
+    now_et = datetime.now(pytz.timezone("US/Eastern"))
+    start_et = now_et.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_ts = start_et.astimezone(pytz.utc).isoformat()
+
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         SELECT timestamp, drink, quantity, price
         FROM purchases
+        WHERE timestamp >= ?
         ORDER BY timestamp DESC
         LIMIT 40
-    """)
+        """,
+        (start_ts,)
+    )
     rows = c.fetchall()
     conn.close()
 
